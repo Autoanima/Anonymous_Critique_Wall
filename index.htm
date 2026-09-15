@@ -206,17 +206,22 @@ var toastMsg = null;
 function setToast(kind, text){ toastMsg = {kind:kind, text:text}; }
 function popToast(){ var t = toastMsg; toastMsg = null; return t; }
 
-function apiGet(){
-  return fetch(apiUrl, { method:'GET' }).then(function(r){
+// 注意：讀取跟一般寫入動作都刻意用 GET 呼叫（把資料放進網址參數）。
+// 瀏覽器對 Google Apps Script 的 POST 有已知的重新導向/跨網域問題，
+// 會讓 fetch() 出現「Failed to fetch」，改用 GET 就不會遇到。
+function apiGet(action, payload){
+  var qs = 'action=' + encodeURIComponent(action || 'home');
+  if(payload) qs += '&payload=' + encodeURIComponent(JSON.stringify(payload));
+  return fetch(apiUrl + '?' + qs, { method:'GET' }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   });
 }
-function apiPost(action, payload){
-  return fetch(apiUrl, { method:'POST', body: JSON.stringify({ action:action, payload:payload }) }).then(function(r){
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return r.json();
-  });
+// 只用在「上傳圖片」：資料量太大塞不進網址，只能用 POST；
+// 用 no-cors 模式送出可以繞開上面那個問題，代價是讀不到回應內容，
+// 所以送出後另外用 apiGet 去確認資料有沒有真的存進去。
+function apiPostNoCors(action, payload){
+  return fetch(apiUrl, { method:'POST', mode:'no-cors', body: JSON.stringify({ action:action, payload:payload }) });
 }
 
 // ---------- 圖片壓縮（避免整張原始照片直接傳給 Apps Script）----------
@@ -466,14 +471,14 @@ function render(){
 function loadHome(){
   if(!apiUrl){ homeStats=null; render(); return; }
   homeStats = null; render();
-  apiGet().then(function(json){ homeStats = json; render(); })
+  apiGet('home').then(function(json){ homeStats = json; render(); })
     .catch(function(e){ setToast('error','無法連上資料庫：'+e.message); render(); });
 }
 function loadMySubs(){
   var name = getMyName();
   if(!name || !apiUrl){ mySubs = []; render(); return; }
   mySubs = null; render();
-  apiPost('getMySubmissions', { studentNorm: normName(name) }).then(function(res){
+  apiGet('getMySubmissions', { studentNorm: normName(name) }).then(function(res){
     mySubs = res.submissions || []; render();
   }).catch(function(e){ mySubs = []; setToast('error','載入失敗：'+e.message); render(); });
 }
@@ -481,7 +486,7 @@ function loadReviewView(){
   var name = getMyName();
   if(!name || !apiUrl) { render(); return; }
   reviewView = null; render();
-  apiPost('getNextWork', { reviewerNorm: normName(name), extraTarget: getExtraTarget() }).then(function(res){
+  apiGet('getNextWork', { reviewerNorm: normName(name), extraTarget: getExtraTarget() }).then(function(res){
     reviewView = res; render();
   }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
 }
@@ -495,7 +500,7 @@ function loadTeacherView(){
     setTeacherAuthPasscode(input);
   }
   teacherView = null; render();
-  apiPost('teacherFetch', { passcode: pass }).then(function(res){
+  apiGet('teacherFetch', { passcode: pass }).then(function(res){
     if(!res.ok){
       clearTeacherAuth();
       setToast('error', '密語不對，請重新點教師專區輸入一次。');
@@ -542,6 +547,15 @@ function handleFileChange(input){
   });
 }
 
+function pollForSubmission(id, attempt){
+  return apiGet('getMySubmissions', { studentNorm: normName(getMyName()) }).then(function(res){
+    var found = (res.submissions||[]).filter(function(s){ return s.id===id; })[0];
+    if(found) return found;
+    if(attempt >= 5) return null;
+    return new Promise(function(resolve){ setTimeout(resolve, 900); }).then(function(){ return pollForSubmission(id, attempt+1); });
+  });
+}
+
 function handleSubmitWork(form){
   var name = form.querySelector('#f_name').value.trim();
   var title = form.querySelector('#f_title').value.trim();
@@ -551,19 +565,40 @@ function handleSubmitWork(form){
   if(link && !safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
   setMyName(name);
   var payload = { id: uid('s_'), studentName:name, studentNorm:normName(name), title:title, createdAt:Date.now() };
-  if(pendingImage){ payload.imageBase64 = pendingImage.base64; payload.imageMime = pendingImage.mime; }
-  else { payload.driveLink = link; }
   loading = true; render();
-  apiPost('addSubmission', payload).then(function(res){
-    loading = false;
+  if(pendingImage){
+    // 圖片資料塞不進網址，只能用 POST；no-cors 模式讀不到回應，
+    // 送出後改用 apiGet 輪詢確認有沒有存成功、順便拿到伺服器配的作品編號。
+    payload.imageBase64 = pendingImage.base64;
+    payload.imageMime = pendingImage.mime;
     pendingImage = null;
-    setToast('success', '已送出！你的作品編號是 '+res.workCode+'，同學評分時只會看到這個編號。');
-    loadMySubs();
-  }).catch(function(e){
-    loading = false;
-    setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
-    render();
-  });
+    apiPostNoCors('addSubmission', payload).then(function(){
+      return pollForSubmission(payload.id, 0);
+    }).then(function(sub){
+      loading = false;
+      if(sub){
+        setToast('success', '已送出！你的作品編號是 '+sub.workCode+'，同學評分時只會看到這個編號。');
+      } else {
+        setToast('success', '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到編號。');
+      }
+      loadMySubs();
+    }).catch(function(e){
+      loading = false;
+      setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
+      render();
+    });
+  } else {
+    payload.driveLink = link;
+    apiGet('addSubmission', payload).then(function(res){
+      loading = false;
+      setToast('success', '已送出！你的作品編號是 '+res.workCode+'，同學評分時只會看到這個編號。');
+      loadMySubs();
+    }).catch(function(e){
+      loading = false;
+      setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
+      render();
+    });
+  }
 }
 function handleSubmitScore(form){
   if(!reviewView || reviewView.done) return;
@@ -580,7 +615,7 @@ function handleSubmitScore(form){
   };
   currentScores = {};
   loading = true; render();
-  apiPost('addReview', payload).then(function(){
+  apiGet('addReview', payload).then(function(){
     loading = false;
     setToast('success', '評分已送出，謝謝！');
     loadReviewView();
@@ -602,7 +637,7 @@ function handleSaveConfig(form){
   });
   var authPass = teacherAuthPasscode();
   loading = true; render();
-  apiPost('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew }).then(function(res){
     loading = false;
     if(!res.ok){ setToast('error','儲存失敗：權限錯誤，請重新登入教師專區。'); clearTeacherAuth(); setRole('home'); render(); return; }
     setTeacherAuthPasscode(passNew);
