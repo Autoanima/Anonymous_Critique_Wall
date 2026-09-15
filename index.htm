@@ -187,7 +187,7 @@ function safeUrl(u){
 function toEmbed(u){
   u = safeUrl(u);
   if(!u) return null;
-  if(/[?&]export=view/i.test(u) || /\.(png|jpe?g|gif|webp|avif)(\?[^\s]*)?$/i.test(u)) return { kind:'image', src:u };
+  if(/\/thumbnail\?/i.test(u) || /[?&]export=view/i.test(u) || /\.(png|jpe?g|gif|webp|avif)(\?[^\s]*)?$/i.test(u)) return { kind:'image', src:u };
   var m = u.match(/\/d\/([a-zA-Z0-9_-]{10,})/) || u.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
   if(m) return { kind:'drive', src:'https://drive.google.com/file/d/'+m[1]+'/preview' };
   return { kind:'link', src:u };
