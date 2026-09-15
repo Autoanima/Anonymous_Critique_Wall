@@ -66,8 +66,8 @@ button,input,textarea{font-family:inherit;}
 .stat-label{display:block;font-size:0.72rem;color:var(--ink-soft);margin-top:2px;}
 .cta-row{display:flex;gap:10px;margin:4px 0;}
 .steps{margin:4px 0 0;padding-left:1.2em;color:var(--ink-soft);display:flex;flex-direction:column;gap:6px;font-size:0.9rem;}
-.footer{margin-top:auto;padding-top:24px;text-align:center;}
-.teacher-link{color:var(--ink-soft);font-size:0.8rem;text-decoration:underline;cursor:pointer;background:none;border:none;padding:0;}
+.footer{margin-top:auto;padding-top:24px;text-align:center;display:flex;gap:14px;justify-content:center;}
+.footer-link{color:var(--ink-soft);font-size:0.8rem;text-decoration:underline;cursor:pointer;background:none;border:none;padding:0;}
 
 .btn{border:none;border-radius:999px;padding:12px 18px;font-size:0.95rem;font-weight:700;cursor:pointer;flex:1;}
 .btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
@@ -81,6 +81,13 @@ button,input,textarea{font-family:inherit;}
 .field input,.field textarea{font-size:1rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;}
 .field input:focus,.field textarea:focus{outline:2px solid var(--focus);outline-offset:1px;}
 .hint{font-size:0.8rem;color:var(--ink-soft);margin:0;}
+
+.upload-box{border:1.5px dashed var(--line);border-radius:10px;padding:14px;text-align:center;background:var(--surface-2);}
+.upload-box input[type=file]{display:block;margin:0 auto;max-width:100%;}
+.upload-preview{margin-top:10px;border-radius:8px;overflow:hidden;background:var(--surface);}
+.upload-preview img{display:block;width:100%;max-height:220px;object-fit:contain;}
+.or-sep{display:flex;align-items:center;gap:10px;color:var(--ink-soft);font-size:0.75rem;}
+.or-sep::before,.or-sep::after{content:'';flex:1;height:1px;background:var(--line);}
 
 .mine-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;}
 .mine-list .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:2px 8px;border-radius:6px;margin-right:8px;font-weight:700;}
@@ -120,7 +127,9 @@ button,input,textarea{font-family:inherit;}
 .config-card .form{margin-top:12px;}
 .config-card textarea{min-height:120px;resize:vertical;}
 .setup-banner{background:var(--low-soft);color:var(--low);border-radius:8px;padding:12px 14px;font-size:0.85rem;}
-.setup-banner code{background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:4px;}
+.setup-banner code{background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:4px;word-break:break-all;}
+.readonly-field{font-family:'JetBrains Mono',monospace;font-size:0.8rem;word-break:break-all;}
+.divider{border:none;border-top:1px solid var(--line);margin:4px 0;}
 
 @media (max-width:400px){
   .cta-row{flex-direction:column;}
@@ -134,31 +143,33 @@ button,input,textarea{font-family:inherit;}
 (function(){
 'use strict';
 
-// ↓↓↓ 部署好 Google Apps Script 後，把網址貼在這裡（記得保留前後的引號） ↓↓↓
-var API_URL = 'https://script.google.com/macros/s/AKfycbyKaWNbSayOL1Xx0xe01coF6I5bR--Ex1Fy6FNm_JaNGKtfVxcAvazwBAPPkGYfb0FpGw/exec';
-// ↑↑↑ 例如 https://script.google.com/macros/s/AKfycb.../exec ↑↑↑
-
 var TITLE = '匿名評圖牆';
+var MAX_ORIGINAL_BYTES = 15 * 1024 * 1024; // 15MB 原始檔案上限
+var RESIZE_MAX_DIM = 1600;
+var RESIZE_QUALITY = 0.82;
 
-function defaultConfig(){
-  return {
-    criteria: [
-      {key:'appeal', label:'有沒有吸引力？'},
-      {key:'likeness', label:'一眼知道是肖像嗎？'},
-      {key:'composition', label:'構圖舒服嗎？'},
-      {key:'color', label:'色彩有一致性嗎？'},
-      {key:'originality', label:'有沒有自己的特色？'},
-      {key:'completion', label:'整體設計完成度'}
-    ],
-    reviewsPerStudent: 5,
-    teacherPasscode: 'crit-7k2m'
-  };
+// ---------- API 連線位址（不用改原始碼，改在「連接設定」畫面貼上即可） ----------
+function getApiUrl(){
+  try{
+    var params = new URLSearchParams(location.search);
+    var fromQuery = params.get('api');
+    if(fromQuery){
+      localStorage.setItem('crit.apiUrl', fromQuery);
+      history.replaceState({}, '', location.pathname);
+    }
+  }catch(e){}
+  return localStorage.getItem('crit.apiUrl') || '';
 }
+function setApiUrl(u){ localStorage.setItem('crit.apiUrl', u); apiUrl = u; }
 
-var state = { config: defaultConfig(), submissions: [], reviews: [] };
-var currentScores = {};
+var apiUrl = getApiUrl();
+var homeStats = null;
+var mySubs = null;
+var reviewView = null;
+var teacherView = null;
 var loading = false;
-var setupNeeded = API_URL.indexOf('PASTE_YOUR') !== -1;
+var currentScores = {};
+var pendingImage = null; // { dataUrl, base64, mime }
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -175,51 +186,20 @@ function safeUrl(u){
 function toEmbed(u){
   u = safeUrl(u);
   if(!u) return null;
+  if(/[?&]export=view/i.test(u) || /\.(png|jpe?g|gif|webp|avif)(\?[^\s]*)?$/i.test(u)) return { kind:'image', src:u };
   var m = u.match(/\/d\/([a-zA-Z0-9_-]{10,})/) || u.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
   if(m) return { kind:'drive', src:'https://drive.google.com/file/d/'+m[1]+'/preview' };
-  if(/\.(png|jpe?g|gif|webp|avif)(\?[^\s]*)?$/i.test(u)) return { kind:'image', src:u };
   return { kind:'link', src:u };
 }
 function uid(prefix){ return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
-
-function reviewCountFor(s, workId){
-  var n=0; for(var i=0;i<s.reviews.length;i++) if(s.reviews[i].workId===workId) n++;
-  return n;
-}
-function statsFor(s, workId){
-  var subReviews = s.reviews.filter(function(r){ return r.workId===workId; });
-  var perCrit = {};
-  s.config.criteria.forEach(function(c){
-    var sum=0, n=0;
-    subReviews.forEach(function(r){ if(typeof r.scores[c.key]==='number'){ sum+=r.scores[c.key]; n++; } });
-    perCrit[c.key] = n ? sum/n : null;
-  });
-  var overallSum=0, overallN=0;
-  subReviews.forEach(function(r){
-    var vals = s.config.criteria.map(function(c){ return r.scores[c.key]; }).filter(function(v){ return typeof v==='number'; });
-    if(vals.length){ overallSum += vals.reduce(function(a,b){return a+b;},0)/vals.length; overallN++; }
-  });
-  return { count: subReviews.length, perCrit: perCrit, overall: overallN ? overallSum/overallN : null };
-}
-function candidatesFor(s, norm){
-  var reviewed = {};
-  s.reviews.forEach(function(r){ if(r.reviewerNorm===norm) reviewed[r.workId]=1; });
-  return s.submissions.filter(function(x){ return x.studentNorm!==norm && !reviewed[x.id]; });
-}
-function pickNext(s, norm){
-  var cand = candidatesFor(s, norm);
-  if(!cand.length) return null;
-  cand.forEach(function(c){ c._n = reviewCountFor(s, c.id); });
-  for(var i=cand.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=cand[i]; cand[i]=cand[j]; cand[j]=t; }
-  cand.sort(function(a,b){ return a._n-b._n; });
-  return cand[0];
-}
 
 function getRole(){ return localStorage.getItem('crit.role') || 'home'; }
 function setRole(r){ localStorage.setItem('crit.role', r); }
 function getMyName(){ return localStorage.getItem('crit.myName') || ''; }
 function setMyName(n){ localStorage.setItem('crit.myName', n); }
-function isTeacherAuthed(){ return sessionStorage.getItem('crit.teacherAuthed')==='1'; }
+function teacherAuthPasscode(){ return sessionStorage.getItem('crit.teacherAuth') || ''; }
+function setTeacherAuthPasscode(p){ sessionStorage.setItem('crit.teacherAuth', p); }
+function clearTeacherAuth(){ sessionStorage.removeItem('crit.teacherAuth'); }
 function getExtraTarget(){ var v = sessionStorage.getItem('crit.extraTarget'); return v ? parseInt(v,10) : 0; }
 
 var toastMsg = null;
@@ -227,71 +207,131 @@ function setToast(kind, text){ toastMsg = {kind:kind, text:text}; }
 function popToast(){ var t = toastMsg; toastMsg = null; return t; }
 
 function apiGet(){
-  return fetch(API_URL, { method:'GET' }).then(function(r){
+  return fetch(apiUrl, { method:'GET' }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   });
 }
 function apiPost(action, payload){
-  return fetch(API_URL, { method:'POST', body: JSON.stringify({ action:action, payload:payload }) }).then(function(r){
+  return fetch(apiUrl, { method:'POST', body: JSON.stringify({ action:action, payload:payload }) }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   });
 }
 
+// ---------- 圖片壓縮（避免整張原始照片直接傳給 Apps Script）----------
+function resizeImageFile(file){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var w = img.width, h = img.height;
+        var scale = Math.min(1, RESIZE_MAX_DIM / Math.max(w,h));
+        var cw = Math.max(1, Math.round(w*scale)), ch = Math.max(1, Math.round(h*scale));
+        var canvas = document.createElement('canvas');
+        canvas.width = cw; canvas.height = ch;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, cw, ch);
+        var dataUrl = canvas.toDataURL('image/jpeg', RESIZE_QUALITY);
+        resolve(dataUrl);
+      };
+      img.onerror = function(){ reject(new Error('圖片讀取失敗')); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('檔案讀取失敗')); };
+    reader.readAsDataURL(file);
+  });
+}
+
 function statTile(n, label){ return '<div class="stat"><span class="stat-num">'+n+'</span><span class="stat-label">'+escapeHtml(label)+'</span></div>'; }
 
+// ---------- 連接設定 ----------
+function connectionSectionHtml(){
+  var current = apiUrl || '';
+  var shareLink = current ? (location.origin + location.pathname + '?api=' + encodeURIComponent(current)) : '';
+  return (
+    '<div class="form">' +
+      '<label class="field"><span>Google Apps Script 網址</span><input id="conn_url" value="'+escapeAttr(current)+'" placeholder="https://script.google.com/macros/s/xxx/exec"></label>' +
+      '<button type="button" class="btn btn-primary" id="saveConn">儲存連線</button>' +
+      (current ?
+        ('<hr class="divider">' +
+         '<p class="hint">把下面這個連結分享給學生，他們第一次打開會自動記住資料庫位置，之後就不用再貼一次：</p>' +
+         '<label class="field"><span>學生用連結</span><input id="conn_share" class="readonly-field" readonly value="'+escapeAttr(shareLink)+'"></label>' +
+         '<button type="button" class="btn btn-accent" id="copyShare">複製學生連結</button>')
+        : '<p class="hint">還沒設定，請先部署 Google Apps Script 並貼上取得的網址。</p>') +
+    '</div>'
+  );
+}
+function screenConnect(){
+  return '<h1 class="screen-title">連接設定</h1><div class="card">' + connectionSectionHtml() + '</div>';
+}
+
 function screenHome(){
-  var subCount = state.submissions.length;
-  var reviewCount = state.reviews.length;
+  var setupHint = !apiUrl ? '<p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址。</p>' : '';
+  if(!apiUrl){
+    return '<section class="hero"><h1>匿名評圖牆</h1><p class="lede">具名交作品，匿名互評分數。</p>'+setupHint+'</section>';
+  }
+  if(!homeStats){
+    return '<section class="hero"><h1>匿名評圖牆</h1><p class="hint">載入中...</p></section>';
+  }
   return (
     '<section class="hero">' +
       '<h1>匿名評圖牆</h1>' +
       '<p class="lede">具名交作品，匿名互評分數。老師指定的題目由同學打 1～5 分，全部完成後自動算出平均分數與排名。</p>' +
       '<div class="stat-row">' +
-        statTile(subCount, '件作品') +
-        statTile(reviewCount, '筆評分') +
-        statTile(state.config.reviewsPerStudent, '每人需評幾件') +
+        statTile(homeStats.submissionCount, '件作品') +
+        statTile(homeStats.reviewCount, '筆評分') +
+        statTile(homeStats.reviewsPerStudent, '每人需評幾件') +
       '</div>' +
       '<div class="cta-row">' +
         '<button class="btn btn-primary" data-nav="submit">交作品</button>' +
         '<button class="btn btn-accent" data-nav="review">我要評分</button>' +
       '</div>' +
       '<ol class="steps">' +
-        '<li>用姓名或學號交出你的作品連結，系統會給你一個匿名編號。</li>' +
+        '<li>用姓名或學號交出你的作品，系統會給你一個匿名編號。</li>' +
         '<li>接著幫忙評分：系統會隨機挑其他同學的作品給你評，不會評到自己的。</li>' +
         '<li>全班評完後，老師會看到總表跟排名。</li>' +
       '</ol>' +
-    '</section>' +
-    '<footer class="footer"><button class="teacher-link" data-nav="teacher">教師專區</button></footer>'
+    '</section>'
   );
 }
 
 function screenSubmit(){
   var name = getMyName();
-  var mine = name ? state.submissions.filter(function(s){ return s.studentNorm===normName(name); }) : [];
-  var listHtml = mine.length ? (
-    '<div class="card"><h2 class="screen-title" style="font-size:1rem">你已經交過的作品</h2><ul class="mine-list">' +
-      mine.map(function(s){ return '<li><span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'（未命名）')+'</li>'; }).join('') +
-    '</ul></div>'
-  ) : '';
+  var listHtml = '';
+  if(mySubs === null){
+    listHtml = '';
+  } else if(mySubs.length){
+    listHtml = '<div class="card"><h2 class="screen-title" style="font-size:1rem">你已經交過的作品</h2><ul class="mine-list">' +
+      mySubs.map(function(s){ return '<li><span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'（未命名）')+'</li>'; }).join('') +
+    '</ul></div>';
+  }
+  var previewHtml = pendingImage ? '<div class="upload-preview"><img src="'+pendingImage.dataUrl+'" alt="預覽"></div>' : '';
   return (
     '<h1 class="screen-title">交作品</h1>' +
     listHtml +
     '<form id="submitForm" class="card form">' +
       '<label class="field"><span>姓名或學號</span><input required id="f_name" value="'+escapeAttr(name)+'" placeholder="例如：王小明 或 10502"></label>' +
       '<label class="field"><span>作品名稱（選填）</span><input id="f_title" placeholder="幫作品取個名字"></label>' +
-      '<label class="field"><span>作品圖片連結</span><input required id="f_link" placeholder="https://drive.google.com/..."></label>' +
-      '<p class="hint">Google Drive 連結記得把分享權限開成「知道連結的人皆可檢視」，同學才看得到圖片。</p>' +
+      '<div class="field"><span>上傳作品圖片</span>' +
+        '<div class="upload-box">' +
+          '<input type="file" accept="image/*" id="f_file">' +
+          '<p class="hint" style="margin-top:8px">會自動壓縮後上傳，不用另外處理權限。</p>' +
+          previewHtml +
+        '</div>' +
+      '</div>' +
+      '<div class="or-sep">或者</div>' +
+      '<label class="field"><span>貼上圖片網址（選填，已經有連結的話可以用這個）</span><input id="f_link" placeholder="https://..."></label>' +
       '<button type="submit" class="btn btn-primary" '+(loading?'disabled':'')+'>'+(loading?'送出中...':'送出作品')+'</button>' +
     '</form>'
   );
 }
 
-function previewHtml(embed){
-  if(!embed) return '<p class="hint">（沒有提供有效的圖片連結）</p>';
-  if(embed.kind==='drive') return '<div class="preview-frame"><iframe src="'+escapeAttr(embed.src)+'" loading="lazy"></iframe></div>';
+function previewFrameHtml(embed){
+  if(!embed) return '<p class="hint">（沒有提供有效的圖片）</p>';
   if(embed.kind==='image') return '<div class="preview-frame"><img src="'+escapeAttr(embed.src)+'" loading="lazy" alt="作品預覽"></div>';
+  if(embed.kind==='drive') return '<div class="preview-frame"><iframe src="'+escapeAttr(embed.src)+'" loading="lazy"></iframe></div>';
   return '<p class="hint">這個連結沒辦法直接預覽，<a href="'+escapeAttr(embed.src)+'" target="_blank" rel="noopener">點此在新分頁開啟</a></p>';
 }
 function criterionRow(c){
@@ -313,35 +353,30 @@ function screenReview(){
       '</form>'
     );
   }
-  currentScores = {};
-  var norm = normName(name);
-  var myDone = state.reviews.filter(function(r){ return r.reviewerNorm===norm; }).length;
-  var required = state.config.reviewsPerStudent;
-  var goal = Math.max(required, getExtraTarget());
-  if(myDone >= goal){
-    var leftover = candidatesFor(state, norm).length;
+  if(!reviewView){
+    return '<h1 class="screen-title">我要評分</h1><p class="hint">載入中...</p>';
+  }
+  if(reviewView.done){
     return (
       '<h1 class="screen-title">我要評分</h1>' +
       '<div class="card done-card">' +
-        '<p class="big-check">已完成 '+myDone+' / '+required+' 件評分，謝謝你！</p>' +
-        (leftover>0 ? '<button class="btn btn-accent" id="wantMore">還想再多評幾件</button>' : '<p class="hint">目前沒有其他作品可以評了。</p>') +
+        '<p class="big-check">已完成 '+reviewView.myDone+' / '+reviewView.required+' 件評分，謝謝你！</p>' +
+        (reviewView.leftover>0 ? '<button class="btn btn-accent" id="wantMore">還想再多評幾件</button>' : '<p class="hint">目前沒有其他作品可以評了。</p>') +
       '</div>'
     );
   }
-  var work = pickNext(state, norm);
-  if(!work){
-    return '<h1 class="screen-title">我要評分</h1><div class="card"><p class="hint">目前還沒有其他同學的作品可以評分，晚點再回來看看。</p></div>';
-  }
+  currentScores = {};
+  var work = reviewView.work;
   var embed = toEmbed(work.driveLink);
   return (
     '<h1 class="screen-title">我要評分</h1>' +
-    '<p class="progress">進度：'+myDone+' / '+required+'</p>' +
+    '<p class="progress">進度：'+reviewView.myDone+' / '+reviewView.required+'</p>' +
     '<div class="card work-card">' +
       '<div class="work-code">'+escapeHtml(work.workCode)+'</div>' +
-      previewHtml(embed) +
+      previewFrameHtml(embed) +
       (work.title ? '<p class="work-title">「'+escapeHtml(work.title)+'」</p>' : '') +
       '<form id="scoreForm" class="score-form" data-work="'+escapeAttr(work.id)+'">' +
-        state.config.criteria.map(criterionRow).join('') +
+        reviewView.criteria.map(criterionRow).join('') +
         '<button type="submit" class="btn btn-primary" id="scoreSubmit" disabled>'+(loading?'送出中...':'送出評分')+'</button>' +
       '</form>' +
     '</div>'
@@ -349,47 +384,46 @@ function screenReview(){
 }
 
 function screenTeacher(){
-  if(!isTeacherAuthed()){
-    return '<h1 class="screen-title">教師專區</h1><div class="card"><p class="hint">請從首頁點「教師專區」並輸入密語進入。</p></div>';
+  if(!teacherView){
+    return '<h1 class="screen-title">教師專區</h1><p class="hint">載入中...</p>';
   }
-  var rows = state.submissions.map(function(s){ return { s:s, st: statsFor(state, s.id) }; });
-  rows.sort(function(a,b){
-    var av = a.st.overall==null ? -1 : a.st.overall;
-    var bv = b.st.overall==null ? -1 : b.st.overall;
-    return bv-av;
-  });
-  var head = state.config.criteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
+  var criteria = teacherView.config.criteria;
+  var rows = teacherView.rows;
+  var head = criteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
   var tableRows = rows.map(function(r, i){
-    var cells = state.config.criteria.map(function(c){
-      var v = r.st.perCrit[c.key];
+    var cells = criteria.map(function(c){
+      var v = r.perCrit[c.key];
       return '<td class="num">'+(v==null?'—':v.toFixed(1))+'</td>';
     }).join('');
     return '<tr>' +
       '<td class="num">'+(i+1)+'</td>' +
-      '<td class="mono">'+escapeHtml(r.s.workCode)+'</td>' +
-      '<td>'+escapeHtml(r.s.studentName)+'</td>' +
-      '<td>'+escapeHtml(r.s.title||'—')+'</td>' +
+      '<td class="mono">'+escapeHtml(r.workCode)+'</td>' +
+      '<td>'+escapeHtml(r.studentName)+'</td>' +
+      '<td>'+escapeHtml(r.title||'—')+'</td>' +
       cells +
-      '<td class="num strong">'+(r.st.overall==null?'—':r.st.overall.toFixed(2))+'</td>' +
-      '<td class="num">'+r.st.count+'</td>' +
+      '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+'</td>' +
+      '<td class="num">'+r.count+'</td>' +
     '</tr>';
   }).join('');
   var configHtml =
     '<details class="card config-card"><summary>教師設定</summary>' +
       '<form id="teacherConfigForm" class="form">' +
-        '<label class="field"><span>每人需要評幾件作品</span><input type="number" min="1" max="50" id="cfg_n" value="'+state.config.reviewsPerStudent+'"></label>' +
-        '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(state.config.criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
-        '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(state.config.teacherPasscode)+'"></label>' +
-        '<p class="hint">密語只是簡單防呆，不是真的加密，頁面原始碼看得到，請勿用來保護重要資料。建議在開放評分「前」就設定好題目，中途更改題目可能會讓已收到的分數對不上新題目。</p>' +
+        '<label class="field"><span>每人需要評幾件作品</span><input type="number" min="1" max="50" id="cfg_n" value="'+teacherView.config.reviewsPerStudent+'"></label>' +
+        '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
+        '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(teacherView.config.teacherPasscode)+'"></label>' +
+        '<p class="hint">密語驗證在伺服器端做，其他同學看不到。建議在開放評分「前」就設定好題目，中途更改題目可能會讓已收到的分數對不上新題目。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
+      '<hr class="divider">' +
+      '<p class="hint" style="margin-bottom:8px">資料庫連接</p>' +
+      connectionSectionHtml() +
     '</details>';
   return (
     '<h1 class="screen-title">教師總表</h1>' +
     '<div class="stat-row">' +
-      statTile(state.submissions.length, '件作品') +
-      statTile(state.reviews.length, '筆評分') +
-      statTile(rows.filter(function(r){ return r.st.count>0; }).length, '已有分數') +
+      statTile(teacherView.submissionCount, '件作品') +
+      statTile(teacherView.reviewCount, '筆評分') +
+      statTile(rows.filter(function(r){ return r.count>0; }).length, '已有分數') +
     '</div>' +
     '<div class="cta-row">' +
       '<button class="btn btn-accent" id="refreshData">重新整理資料</button>' +
@@ -403,6 +437,7 @@ function screenTeacher(){
 }
 
 function screenHtml(role){
+  if(role==='connect') return screenConnect();
   if(role==='submit') return screenSubmit();
   if(role==='review') return screenReview();
   if(role==='teacher') return screenTeacher();
@@ -416,42 +451,114 @@ function navHtml(role){
 function render(){
   var role = getRole();
   var toast = popToast();
-  var setupHtml = setupNeeded ?
-    '<div class="setup-banner">這個頁面還沒設定好資料庫網址：請部署 Google Apps Script，把網址貼進 <code>index.html</code> 裡的 <code>API_URL</code>（目前還是預設的 <code>PASTE_YOUR_GOOGLE_APPS_SCRIPT_URL_HERE</code>）。</div>' : '';
   var html =
     '<div class="shell">' +
       navHtml(role) +
-      setupHtml +
       (toast ? '<div class="toast toast-'+escapeAttr(toast.kind)+'">'+escapeHtml(toast.text)+'</div>' : '') +
       '<main class="content">' + screenHtml(role) + '</main>' +
+      '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button></footer>' +
     '</div>';
   document.getElementById('app').innerHTML = html;
   attachHandlers();
 }
 
+// ---------- 資料載入 ----------
+function loadHome(){
+  if(!apiUrl){ homeStats=null; render(); return; }
+  homeStats = null; render();
+  apiGet().then(function(json){ homeStats = json; render(); })
+    .catch(function(e){ setToast('error','無法連上資料庫：'+e.message); render(); });
+}
+function loadMySubs(){
+  var name = getMyName();
+  if(!name || !apiUrl){ mySubs = []; render(); return; }
+  mySubs = null; render();
+  apiPost('getMySubmissions', { studentNorm: normName(name) }).then(function(res){
+    mySubs = res.submissions || []; render();
+  }).catch(function(e){ mySubs = []; setToast('error','載入失敗：'+e.message); render(); });
+}
+function loadReviewView(){
+  var name = getMyName();
+  if(!name || !apiUrl) { render(); return; }
+  reviewView = null; render();
+  apiPost('getNextWork', { reviewerNorm: normName(name), extraTarget: getExtraTarget() }).then(function(res){
+    reviewView = res; render();
+  }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
+}
+function loadTeacherView(){
+  if(!apiUrl){ setToast('error','請先到「連接設定」貼上資料庫網址。'); setRole('connect'); render(); return; }
+  var pass = teacherAuthPasscode();
+  if(!pass){
+    var input = prompt('請輸入教師密語：');
+    if(input===null){ setRole('home'); render(); return; }
+    pass = input;
+    setTeacherAuthPasscode(input);
+  }
+  teacherView = null; render();
+  apiPost('teacherFetch', { passcode: pass }).then(function(res){
+    if(!res.ok){
+      clearTeacherAuth();
+      setToast('error', '密語不對，請重新點教師專區輸入一次。');
+      setRole('home');
+      render();
+      return;
+    }
+    teacherView = res;
+    render();
+  }).catch(function(e){ setToast('error','連線失敗：'+e.message); setRole('home'); render(); });
+}
+
+function goTo(role){
+  setRole(role);
+  if(role==='home') loadHome();
+  else if(role==='submit') loadMySubs();
+  else if(role==='review'){ if(getMyName()) loadReviewView(); else render(); }
+  else if(role==='teacher') loadTeacherView();
+  else render();
+}
+
 function updateSubmitEnabled(form){
   if(!form) return;
   var btn = form.querySelector('#scoreSubmit');
-  if(!btn) return;
-  var complete = state.config.criteria.every(function(c){ return typeof currentScores[c.key]==='number'; });
+  if(!btn || !reviewView || reviewView.done) return;
+  var complete = reviewView.criteria.every(function(c){ return typeof currentScores[c.key]==='number'; });
   btn.disabled = !complete;
+}
+
+function handleFileChange(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  if(file.size > MAX_ORIGINAL_BYTES){
+    alert('圖片檔案太大，請選 15MB 以下的照片。');
+    input.value = '';
+    return;
+  }
+  resizeImageFile(file).then(function(dataUrl){
+    var base64 = dataUrl.split(',')[1];
+    pendingImage = { dataUrl: dataUrl, base64: base64, mime: 'image/jpeg' };
+    render();
+  }).catch(function(e){
+    alert('圖片處理失敗：'+e.message);
+  });
 }
 
 function handleSubmitWork(form){
   var name = form.querySelector('#f_name').value.trim();
   var title = form.querySelector('#f_title').value.trim();
   var link = form.querySelector('#f_link').value.trim();
-  if(!name || !link) return;
-  if(!safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
+  if(!name) return;
+  if(!pendingImage && !link){ alert('請上傳一張圖片，或貼上圖片網址。'); return; }
+  if(link && !safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
   setMyName(name);
-  var payload = { id: uid('s_'), studentName:name, studentNorm:normName(name), title:title, driveLink:link, createdAt:Date.now() };
+  var payload = { id: uid('s_'), studentName:name, studentNorm:normName(name), title:title, createdAt:Date.now() };
+  if(pendingImage){ payload.imageBase64 = pendingImage.base64; payload.imageMime = pendingImage.mime; }
+  else { payload.driveLink = link; }
   loading = true; render();
-  apiPost('addSubmission', payload).then(function(json){
+  apiPost('addSubmission', payload).then(function(res){
     loading = false;
-    state = json;
-    var mine = json.submissions.filter(function(s){ return s.id===payload.id; })[0];
-    setToast('success', mine ? ('已送出！你的作品編號是 '+mine.workCode+'，同學評分時只會看到這個編號。') : '已送出！');
-    render();
+    pendingImage = null;
+    setToast('success', '已送出！你的作品編號是 '+res.workCode+'，同學評分時只會看到這個編號。');
+    loadMySubs();
   }).catch(function(e){
     loading = false;
     setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
@@ -459,8 +566,9 @@ function handleSubmitWork(form){
   });
 }
 function handleSubmitScore(form){
+  if(!reviewView || reviewView.done) return;
   var workId = form.getAttribute('data-work');
-  var complete = state.config.criteria.every(function(c){ return typeof currentScores[c.key]==='number'; });
+  var complete = reviewView.criteria.every(function(c){ return typeof currentScores[c.key]==='number'; });
   if(!complete) return;
   var norm = normName(getMyName());
   var payload = {
@@ -472,11 +580,10 @@ function handleSubmitScore(form){
   };
   currentScores = {};
   loading = true; render();
-  apiPost('addReview', payload).then(function(json){
+  apiPost('addReview', payload).then(function(){
     loading = false;
-    state = json;
     setToast('success', '評分已送出，謝謝！');
-    render();
+    loadReviewView();
   }).catch(function(e){
     loading = false;
     setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
@@ -486,24 +593,22 @@ function handleSubmitScore(form){
 function handleSaveConfig(form){
   var n = Math.max(1, Math.min(50, parseInt(form.querySelector('#cfg_n').value,10) || 1));
   var lines = form.querySelector('#cfg_criteria').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
-  if(!lines.length) lines = state.config.criteria.map(function(c){ return c.label; });
-  var pass = form.querySelector('#cfg_pass').value.trim() || state.config.teacherPasscode;
+  var oldCriteria = teacherView.config.criteria;
+  if(!lines.length) lines = oldCriteria.map(function(c){ return c.label; });
+  var passNew = form.querySelector('#cfg_pass').value.trim() || teacherView.config.teacherPasscode;
   var newCriteria = lines.map(function(label, i){
-    var existing = state.config.criteria[i];
+    var existing = oldCriteria[i];
     return { key: existing ? existing.key : 'c' + (i+1) + '_' + uid(''), label: label };
   });
-  var payload = { criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:pass };
+  var authPass = teacherAuthPasscode();
   loading = true; render();
-  apiPost('updateConfig', payload).then(function(json){
+  apiPost('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew }).then(function(res){
     loading = false;
-    state = json;
+    if(!res.ok){ setToast('error','儲存失敗：權限錯誤，請重新登入教師專區。'); clearTeacherAuth(); setRole('home'); render(); return; }
+    setTeacherAuthPasscode(passNew);
     setToast('success', '設定已儲存');
-    render();
-  }).catch(function(e){
-    loading = false;
-    setToast('error', '儲存失敗（'+e.message+'），請檢查網路連線或稍後再試。');
-    render();
-  });
+    loadTeacherView();
+  }).catch(function(e){ loading=false; setToast('error','儲存失敗：'+e.message); render(); });
 }
 function csvCell(v){
   v = String(v==null?'':v);
@@ -511,18 +616,15 @@ function csvCell(v){
   return v;
 }
 function handleExportCsv(){
-  var rows = state.submissions.map(function(s){ return { s:s, st: statsFor(state, s.id) }; });
-  rows.sort(function(a,b){
-    var av = a.st.overall==null ? -1 : a.st.overall;
-    var bv = b.st.overall==null ? -1 : b.st.overall;
-    return bv-av;
-  });
-  var header = ['排名','編號','姓名','作品名稱'].concat(state.config.criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
+  if(!teacherView) return;
+  var criteria = teacherView.config.criteria;
+  var rows = teacherView.rows;
+  var header = ['排名','編號','姓名','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
-    var cells = [i+1, r.s.workCode, r.s.studentName, r.s.title||''].concat(
-      state.config.criteria.map(function(c){ var v=r.st.perCrit[c.key]; return v==null?'':v.toFixed(2); })
-    ).concat([r.st.overall==null?'':r.st.overall.toFixed(2), r.st.count]);
+    var cells = [i+1, r.workCode, r.studentName, r.title||''].concat(
+      criteria.map(function(c){ var v=r.perCrit[c.key]; return v==null?'':v.toFixed(2); })
+    ).concat([r.overall==null?'':r.overall.toFixed(2), r.count]);
     lines.push(cells.map(csvCell).join(','));
   });
   var csv = '﻿' + lines.join('\r\n');
@@ -533,23 +635,34 @@ function handleExportCsv(){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
 }
+function handleSaveConnection(form){
+  var url = form.querySelector('#conn_url').value.trim();
+  if(!url){ alert('請貼上網址'); return; }
+  setApiUrl(url);
+  setToast('success', '連線已儲存');
+  render();
+  loadHome();
+}
+function handleCopyShare(){
+  var input = document.getElementById('conn_share');
+  if(!input || !input.value) return;
+  var done = function(){ setToast('success','已複製，貼給學生就可以了'); render(); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(input.value).then(done).catch(function(){ fallbackCopy(input, done); });
+  } else {
+    fallbackCopy(input, done);
+  }
+}
+function fallbackCopy(input, done){
+  try{ input.removeAttribute('readonly'); input.select(); document.execCommand('copy'); input.setAttribute('readonly',''); done(); }
+  catch(e){ alert('複製失敗，請手動選取文字複製。'); }
+}
 
 function attachHandlers(){
   var root = document.getElementById('app');
   root.onclick = function(e){
     var navBtn = e.target.closest('[data-nav]');
-    if(navBtn){
-      var r = navBtn.getAttribute('data-nav');
-      if(r==='teacher' && !isTeacherAuthed()){
-        var pass = prompt('請輸入教師密語：');
-        if(pass===null) return;
-        if(pass !== state.config.teacherPasscode){ alert('密語不對喔'); return; }
-        sessionStorage.setItem('crit.teacherAuthed','1');
-      }
-      setRole(r);
-      render();
-      return;
-    }
+    if(navBtn){ goTo(navBtn.getAttribute('data-nav')); return; }
     var dot = e.target.closest('.score-dot');
     if(dot){
       var key = dot.getAttribute('data-key');
@@ -563,18 +676,18 @@ function attachHandlers(){
     }
     if(e.target.closest('#wantMore')){
       var norm2 = normName(getMyName());
-      var done2 = state.reviews.filter(function(r){ return r.reviewerNorm===norm2; }).length;
+      var done2 = reviewView ? reviewView.myDone : 0;
       sessionStorage.setItem('crit.extraTarget', String(done2+5));
-      render();
+      loadReviewView();
       return;
     }
     if(e.target.closest('#exportCsv')){ handleExportCsv(); return; }
-    if(e.target.closest('#refreshData')){
-      loading = true; render();
-      apiGet().then(function(json){ loading=false; state=json; render(); })
-        .catch(function(e){ loading=false; setToast('error','重新整理失敗：'+e.message); render(); });
-      return;
-    }
+    if(e.target.closest('#refreshData')){ loadTeacherView(); return; }
+    if(e.target.closest('#saveConn')){ handleSaveConnection(document.getElementById('app')); return; }
+    if(e.target.closest('#copyShare')){ handleCopyShare(); return; }
+  };
+  root.onchange = function(e){
+    if(e.target.id==='f_file'){ handleFileChange(e.target); }
   };
   root.onsubmit = function(e){
     var form = e.target;
@@ -584,7 +697,7 @@ function attachHandlers(){
       var v = form.querySelector('#r_name').value.trim();
       if(!v) return;
       setMyName(v);
-      render();
+      loadReviewView();
     }
     else if(form.id==='scoreForm'){ e.preventDefault(); handleSubmitScore(form); }
     else if(form.id==='teacherConfigForm'){ e.preventDefault(); handleSaveConfig(form); }
@@ -592,15 +705,10 @@ function attachHandlers(){
 }
 
 function init(){
-  render();
-  if(setupNeeded) return;
-  apiGet().then(function(json){
-    state = json;
-    render();
-  }).catch(function(e){
-    setToast('error', '無法連上資料庫，請確認網路連線正常，或稍後再試。（'+e.message+'）');
-    render();
-  });
+  if(!apiUrl){ setRole('connect'); render(); return; }
+  var role = getRole();
+  if(role==='connect') role = 'home';
+  goTo(role);
 }
 init();
 })();
