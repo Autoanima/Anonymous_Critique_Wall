@@ -48,8 +48,10 @@ button,input,textarea{font-family:inherit;}
 .shell{max-width:560px;margin:0 auto;padding-inline:20px;padding-block:0 40px;min-height:100vh;display:flex;flex-direction:column;}
 
 .topbar{position:sticky;top:0;background:var(--paper);padding-block:14px 10px;display:flex;flex-direction:column;gap:10px;z-index:5;border-bottom:1px solid var(--line);}
+.topbar-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
 .brand{font-family:'Noto Serif TC',serif;font-weight:700;font-size:1.15rem;display:flex;align-items:center;gap:8px;}
 .brand-mark{color:var(--accent);font-size:1.3rem;}
+.identity-badge{background:none;border:none;color:var(--ink-soft);font-size:0.72rem;padding:2px 4px;cursor:pointer;white-space:nowrap;}
 .tabs{display:flex;gap:8px;}
 .navbtn{flex:1;padding:10px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);font-size:0.85rem;font-weight:500;cursor:pointer;}
 .navbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;}
@@ -136,6 +138,32 @@ button,input,textarea{font-family:inherit;}
 .readonly-field{font-family:'JetBrains Mono',monospace;font-size:0.8rem;word-break:break-all;}
 .divider{border:none;border-top:1px solid var(--line);margin:4px 0;}
 
+.gallery-controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;}
+.gallery-controls .field{flex:1 1 160px;}
+.gallery-controls select{width:100%;font-size:1rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;}
+.gallery-toggles{display:flex;flex-direction:column;gap:6px;font-size:0.85rem;}
+.toggle-row{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink-soft);}
+.toggle-row input{width:16px;height:16px;}
+.gallery-grid{column-count:2;column-gap:12px;}
+.gallery-card{break-inside:avoid;margin-bottom:12px;background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--radius) + 2px);overflow:hidden;box-shadow:var(--shadow);cursor:pointer;}
+.gallery-img{width:100%;background:var(--surface-2);}
+.gallery-img img{width:100%;display:block;}
+.gallery-img iframe{width:100%;height:200px;border:0;display:block;}
+.gallery-meta{padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:0.78rem;}
+.gallery-name{color:var(--ink-soft);}
+.gallery-score{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--accent-strong);background:var(--accent-soft);padding:1px 6px;border-radius:6px;}
+@media (min-width:600px){ .gallery-grid{column-count:3;} }
+
+.slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.94);z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;}
+.slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
+.slide-stage{max-width:min(92vw,720px);max-height:58vh;display:flex;align-items:center;justify-content:center;}
+.slide-stage img{max-width:100%;max-height:58vh;border-radius:8px;object-fit:contain;}
+.slide-stage iframe{width:min(92vw,720px);height:58vh;border:0;border-radius:8px;background:#fff;}
+.slide-meta{color:#fff;display:flex;gap:10px;align-items:center;font-size:0.95rem;flex-wrap:wrap;justify-content:center;}
+.slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:2px 8px;border-radius:6px;font-weight:700;}
+.slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:0.85rem;}
+.slide-controls{display:flex;gap:10px;}
+
 @media (max-width:400px){
   .cta-row{flex-direction:column;}
   .score-dot{width:34px;height:34px;font-size:0.85rem;}
@@ -176,6 +204,14 @@ var teacherView = null;
 var loading = false;
 var currentScores = {};
 var pendingImage = null; // { dataUrl, base64, mime }
+var galleryData = null; // { rows, criteria }
+var gallerySort = 'overall';
+var galleryShowNames = false;
+var galleryShowScores = false;
+var slideshowIndex = null;
+var slideshowPlaying = true;
+var slideshowTimer = null;
+var identityEditing = false;
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -184,6 +220,7 @@ function escapeHtml(s){
 }
 function escapeAttr(s){ return escapeHtml(s); }
 function normName(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+function normSeat(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,''); }
 function safeUrl(u){
   u = String(u||'').trim();
   if(/^https?:\/\//i.test(u)) return u;
@@ -203,6 +240,10 @@ function getRole(){ return localStorage.getItem('crit.role') || 'home'; }
 function setRole(r){ localStorage.setItem('crit.role', r); }
 function getMyName(){ return localStorage.getItem('crit.myName') || ''; }
 function setMyName(n){ localStorage.setItem('crit.myName', n); }
+function getMySeat(){ return localStorage.getItem('crit.mySeat') || ''; }
+function setMySeat(s){ localStorage.setItem('crit.mySeat', s); }
+function hasIdentity(){ return !!(getMySeat() && getMyName()); }
+function identityNorm(){ return normSeat(getMySeat()) + '::' + normName(getMyName()); }
 function teacherAuthPasscode(){ return sessionStorage.getItem('crit.teacherAuth') || ''; }
 function setTeacherAuthPasscode(p){ sessionStorage.setItem('crit.teacherAuth', p); }
 function clearTeacherAuth(){ sessionStorage.removeItem('crit.teacherAuth'); }
@@ -274,6 +315,31 @@ function resizeImageFile(file){
 
 function statTile(n, label){ return '<div class="stat"><span class="stat-num">'+n+'</span><span class="stat-label">'+escapeHtml(label)+'</span></div>'; }
 
+function identitySectionHtml(){
+  var seat = getMySeat(), name = getMyName();
+  if(seat && name && !identityEditing){
+    return (
+      '<div class="card identity-card">' +
+        '<p class="hint">目前身分：<strong>'+escapeHtml(seat)+'號 '+escapeHtml(name)+'</strong>　' +
+        '<button type="button" class="footer-link" id="editIdentity">修改</button></p>' +
+      '</div>'
+    );
+  }
+  return (
+    '<div class="card form">' +
+      '<h2 class="screen-title" style="font-size:1.05rem">先設定你的座號和姓名</h2>' +
+      '<p class="hint">交作品、評分都需要用到，這台裝置會記住，不用每次重填。</p>' +
+      '<label class="field"><span>座號</span><input required id="id_seat" value="'+escapeAttr(seat)+'" placeholder="例如：13"></label>' +
+      '<label class="field"><span>姓名</span><input required id="id_name" value="'+escapeAttr(name)+'" placeholder="例如：王小明"></label>' +
+      '<button type="button" class="btn btn-primary" id="saveIdentity">儲存</button>' +
+    '</div>'
+  );
+}
+function identityBadgeHtml(){
+  if(!hasIdentity()) return '';
+  return '<button type="button" class="identity-badge" data-nav="home">'+escapeHtml(getMySeat())+'號 '+escapeHtml(getMyName())+'</button>';
+}
+
 // ---------- 連接設定 ----------
 function connectionSectionHtml(){
   var current = apiUrl || '';
@@ -296,14 +362,16 @@ function screenConnect(){
 }
 
 function screenHome(){
+  var identityHtml = identitySectionHtml();
   var setupHint = !apiUrl ? '<p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址。</p>' : '';
   if(!apiUrl){
-    return '<section class="hero"><h1>匿名評圖牆</h1><p class="lede">具名交作品，匿名互評分數。</p>'+setupHint+'</section>';
+    return identityHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="lede">具名交作品，匿名互評分數。</p>'+setupHint+'</section>';
   }
   if(!homeStats){
-    return '<section class="hero"><h1>匿名評圖牆</h1><p class="hint">載入中...</p></section>';
+    return identityHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="hint">載入中...</p></section>';
   }
   return (
+    identityHtml +
     '<section class="hero">' +
       '<h1>匿名評圖牆</h1>' +
       '<p class="lede">具名交作品，匿名互評分數。老師指定的題目由同學打 1～5 分，全部完成後自動算出平均分數與排名。</p>' +
@@ -316,8 +384,10 @@ function screenHome(){
         '<button class="btn btn-primary" data-nav="submit">交作品</button>' +
         '<button class="btn btn-accent" data-nav="review">我要評分</button>' +
       '</div>' +
+      '<button class="btn btn-accent" data-nav="gallery" style="width:100%;margin-bottom:4px">瀏覽作品牆</button>' +
       '<ol class="steps">' +
-        '<li>用姓名或學號交出你的作品，系統會給你一個匿名編號。</li>' +
+        '<li>先設定座號和姓名，系統會記住，之後不用重填。</li>' +
+        '<li>交出你的作品，系統會給你一個匿名編號。</li>' +
         '<li>接著幫忙評分：系統會隨機挑其他同學的作品給你評，不會評到自己的。</li>' +
         '<li>全班評完後，老師會看到總表跟排名。</li>' +
       '</ol>' +
@@ -326,7 +396,9 @@ function screenHome(){
 }
 
 function screenSubmit(){
-  var name = getMyName();
+  if(!hasIdentity()){
+    return '<h1 class="screen-title">交作品</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能交作品。</p>';
+  }
   var listHtml = '';
   if(mySubs === null){
     listHtml = '';
@@ -350,7 +422,6 @@ function screenSubmit(){
     '<h1 class="screen-title">交作品</h1>' +
     listHtml +
     '<form id="submitForm" class="card form">' +
-      '<label class="field"><span>姓名或學號</span><input required id="f_name" value="'+escapeAttr(name)+'" placeholder="例如：王小明 或 10502"></label>' +
       '<label class="field"><span>作品名稱（選填）</span><input id="f_title" placeholder="幫作品取個名字"></label>' +
       '<div class="field"><span>上傳作品圖片</span>' +
         '<div class="upload-box">' +
@@ -380,16 +451,8 @@ function criterionRow(c){
 }
 
 function screenReview(){
-  var name = getMyName();
-  if(!name){
-    return (
-      '<h1 class="screen-title">我要評分</h1>' +
-      '<form id="nameForm" class="card form">' +
-        '<label class="field"><span>先告訴我們你是誰</span><input required id="r_name" placeholder="姓名或學號，跟交作品時輸入的一樣"></label>' +
-        '<p class="hint">這是為了不讓你評到自己的作品，不會顯示給其他同學看。</p>' +
-        '<button type="submit" class="btn btn-accent">開始評分</button>' +
-      '</form>'
-    );
+  if(!hasIdentity()){
+    return '<h1 class="screen-title">我要評分</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能開始評分。</p>';
   }
   if(!reviewView){
     return '<h1 class="screen-title">我要評分</h1><p class="hint">載入中...</p>';
@@ -421,6 +484,88 @@ function screenReview(){
   );
 }
 
+function sortedGalleryRows(){
+  if(!galleryData) return [];
+  var key = gallerySort;
+  function val(r){ return key==='overall' ? r.overall : r.perCrit[key]; }
+  var rows = galleryData.rows.slice();
+  rows.sort(function(a,b){
+    var av = val(a), bv = val(b);
+    av = av==null ? -1 : av; bv = bv==null ? -1 : bv;
+    return bv - av;
+  });
+  return rows;
+}
+function galleryMetaHtml(r, scoreVal){
+  var nameBit = (galleryShowNames && r.studentName) ? ' <span class="gallery-name">'+escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName)+'</span>' : '';
+  return (
+    '<span class="code">'+escapeHtml(r.workCode)+'</span>' +
+    nameBit +
+    (galleryShowScores ? ' <span class="gallery-score">'+(scoreVal==null?'—':scoreVal.toFixed(2))+'</span>' : '')
+  );
+}
+function galleryImageHtml(r, tall){
+  var embed = toEmbed(r.driveLink);
+  if(embed && embed.kind==='image') return '<img src="'+escapeAttr(embed.src)+'" loading="lazy" alt="">';
+  if(embed && embed.kind==='drive') return '<iframe src="'+escapeAttr(embed.src)+'" loading="lazy"></iframe>';
+  return '<p class="hint" style="padding:16px">（無法預覽）</p>';
+}
+function screenGallery(){
+  if(!galleryData){
+    return '<h1 class="screen-title">作品牆</h1><p class="hint">載入中...</p>';
+  }
+  var rows = sortedGalleryRows();
+  var revealed = !!galleryData.namesRevealed;
+  if(!revealed) galleryShowNames = false;
+  var sortOptions = '<option value="overall"'+(gallerySort==='overall'?' selected':'')+'>總平均（預設）</option>' +
+    galleryData.criteria.map(function(c){ return '<option value="'+escapeAttr(c.key)+'"'+(gallerySort===c.key?' selected':'')+'>'+escapeHtml(c.label)+'</option>'; }).join('');
+  var cards = rows.map(function(r, i){
+    var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
+    return '<div class="gallery-card" data-idx="'+i+'">' +
+      '<div class="gallery-img">'+galleryImageHtml(r)+'</div>' +
+      '<div class="gallery-meta">'+galleryMetaHtml(r, scoreVal)+'</div>' +
+    '</div>';
+  }).join('');
+  return (
+    '<h1 class="screen-title">作品牆</h1>' +
+    '<div class="gallery-controls card">' +
+      '<label class="field"><span>排序依據</span><select id="gallerySort">'+sortOptions+'</select></label>' +
+      '<div class="gallery-toggles">' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（老師尚未開放）')+'</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+'> 顯示分數</label>' +
+      '</div>' +
+      '<button type="button" class="btn btn-primary" id="startSlideshow" '+(rows.length?'':'disabled')+'>播放展示</button>' +
+    '</div>' +
+    (rows.length ? '<div class="gallery-grid">'+cards+'</div>' : '<div class="card"><p class="hint">目前還沒有作品。</p></div>')
+  );
+}
+function slideshowHtml(){
+  var rows = sortedGalleryRows();
+  if(slideshowIndex==null || !rows.length) return '';
+  var idx = ((slideshowIndex % rows.length) + rows.length) % rows.length;
+  var r = rows[idx];
+  var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
+  return (
+    '<div class="slideshow-overlay">' +
+      '<button type="button" class="slide-close" id="slideClose" aria-label="關閉">&times;</button>' +
+      '<div class="slide-stage">'+galleryImageHtml(r)+'</div>' +
+      '<div class="slide-meta">'+galleryMetaHtml(r, scoreVal)+'<span class="slide-pos">'+(idx+1)+' / '+rows.length+'</span></div>' +
+      '<div class="slide-controls">' +
+        '<button type="button" class="btn btn-accent" id="slidePrev">上一張</button>' +
+        '<button type="button" class="btn btn-primary" id="slidePlayPause">'+(slideshowPlaying?'暫停':'播放')+'</button>' +
+        '<button type="button" class="btn btn-accent" id="slideNext">下一張</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+function startSlideTimer(){
+  stopSlideTimer();
+  slideshowTimer = setInterval(function(){ slideshowIndex = slideshowIndex + 1; render(); }, 4000);
+}
+function stopSlideTimer(){
+  if(slideshowTimer){ clearInterval(slideshowTimer); slideshowTimer = null; }
+}
+
 function screenTeacher(){
   if(!teacherView){
     return '<h1 class="screen-title">教師專區</h1><p class="hint">載入中...</p>';
@@ -440,6 +585,7 @@ function screenTeacher(){
       '<td class="num">'+(i+1)+'</td>' +
       '<td>'+thumb+'</td>' +
       '<td class="mono">'+escapeHtml(r.workCode)+'</td>' +
+      '<td class="num">'+(namesHidden ? '●' : escapeHtml(r.studentSeat))+'</td>' +
       '<td>'+(namesHidden ? '●●●' : escapeHtml(r.studentName))+'</td>' +
       '<td>'+escapeHtml(r.title||'—')+'</td>' +
       cells +
@@ -452,6 +598,7 @@ function screenTeacher(){
   var reviewers = teacherView.reviewers || [];
   var reviewerRows = reviewers.map(function(rv){
     return '<tr>' +
+      '<td class="num">'+(namesHidden ? '●' : escapeHtml(rv.seat))+'</td>' +
       '<td>'+(namesHidden ? '●●●' : escapeHtml(rv.name))+'</td>' +
       '<td>'+(rv.submitted ? '<span class="mono">'+escapeHtml(rv.workCodes)+'</span>' : '<span class="hint">未交作品</span>')+'</td>' +
       '<td class="num">'+rv.reviewCount+'</td>' +
@@ -467,6 +614,7 @@ function screenTeacher(){
         '<label class="field"><span>每人需要評幾件作品</span><input type="number" min="1" max="50" id="cfg_n" value="'+teacherView.config.reviewsPerStudent+'"></label>' +
         '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
         '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(teacherView.config.teacherPasscode)+'"></label>' +
+        '<label class="toggle-row"><input type="checkbox" id="cfg_namesRevealed" '+(teacherView.config.namesRevealed?'checked':'')+'> 開放作品牆顯示姓名／座號（建議評分截止後再打開）</label>' +
         '<p class="hint">密語驗證在伺服器端做，其他同學看不到。建議在開放評分「前」就設定好題目，中途更改題目可能會讓已收到的分數對不上新題目。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
@@ -487,12 +635,12 @@ function screenTeacher(){
       '<button class="btn btn-accent" id="exportCsv">匯出 CSV</button>' +
     '</div>' +
     '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-      '<th>排名</th><th>圖片</th><th>編號</th><th>姓名</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
+      '<th>排名</th><th>圖片</th><th>編號</th><th>座號</th><th>姓名</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     '<h2 class="screen-title" style="font-size:1.1rem">評分進度</h2>' +
     '<p class="hint">每人要評 '+required+' 件，這裡可以看誰還沒評完、誰額外多評了幾件。</p>' +
     '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-      '<th>姓名</th><th>已交作品</th><th>已評分數</th><th>狀態</th>' +
+      '<th>座號</th><th>姓名</th><th>已交作品</th><th>已評分數</th><th>狀態</th>' +
     '</tr></thead><tbody>' + (reviewerRows || '<tr><td colspan="99" class="hint">目前還沒有人交作品或評分。</td></tr>') + '</tbody></table></div>' +
     configHtml
   );
@@ -502,12 +650,13 @@ function screenHtml(role){
   if(role==='connect') return screenConnect();
   if(role==='submit') return screenSubmit();
   if(role==='review') return screenReview();
+  if(role==='gallery') return screenGallery();
   if(role==='teacher') return screenTeacher();
   return screenHome();
 }
 function navHtml(role){
   function btn(r, label){ return '<button class="navbtn'+(role===r?' active':'')+'" data-nav="'+r+'">'+label+'</button>'; }
-  return '<header class="topbar"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+'</nav></header>';
+  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+'</nav></header>';
 }
 
 function render(){
@@ -519,7 +668,8 @@ function render(){
       (toast ? '<div class="toast toast-'+escapeAttr(toast.kind)+'">'+escapeHtml(toast.text)+'</div>' : '') +
       '<main class="content">' + screenHtml(role) + '</main>' +
       '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button></footer>' +
-    '</div>';
+    '</div>' +
+    slideshowHtml();
   document.getElementById('app').innerHTML = html;
   attachHandlers();
 }
@@ -532,18 +682,16 @@ function loadHome(){
     .catch(function(e){ setToast('error','無法連上資料庫：'+e.message); render(); });
 }
 function loadMySubs(){
-  var name = getMyName();
-  if(!name || !apiUrl){ mySubs = []; render(); return; }
+  if(!hasIdentity() || !apiUrl){ mySubs = []; render(); return; }
   mySubs = null; render();
-  apiGet('getMySubmissions', { studentNorm: normName(name) }).then(function(res){
+  apiGet('getMySubmissions', { studentNorm: identityNorm() }).then(function(res){
     mySubs = res.submissions || []; render();
   }).catch(function(e){ mySubs = []; setToast('error','載入失敗：'+e.message); render(); });
 }
 function loadReviewView(){
-  var name = getMyName();
-  if(!name || !apiUrl) { render(); return; }
+  if(!hasIdentity() || !apiUrl) { render(); return; }
   reviewView = null; render();
-  apiGet('getNextWork', { reviewerNorm: normName(name), extraTarget: getExtraTarget() }).then(function(res){
+  apiGet('getNextWork', { reviewerNorm: identityNorm(), extraTarget: getExtraTarget() }).then(function(res){
     reviewView = res; render();
   }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
 }
@@ -570,11 +718,20 @@ function loadTeacherView(){
   }).catch(function(e){ setToast('error','連線失敗：'+e.message); setRole('home'); render(); });
 }
 
+function loadGallery(){
+  if(!apiUrl){ galleryData=null; render(); return; }
+  galleryData = null; render();
+  apiGet('gallery').then(function(res){ galleryData = res; render(); })
+    .catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
+}
+
 function goTo(role){
+  if(role !== 'gallery' && slideshowIndex != null){ stopSlideTimer(); slideshowIndex = null; }
   setRole(role);
   if(role==='home') loadHome();
   else if(role==='submit') loadMySubs();
-  else if(role==='review'){ if(getMyName()) loadReviewView(); else render(); }
+  else if(role==='review'){ if(hasIdentity()) loadReviewView(); else render(); }
+  else if(role==='gallery') loadGallery();
   else if(role==='teacher') loadTeacherView();
   else render();
 }
@@ -607,7 +764,7 @@ function handleFileChange(input){
 function pollForSubmission(id, attempt){
   var delay = attempt === 0 ? 400 : 500; // 給表單送出一點點頭彩時間，之後密集檢查
   return new Promise(function(resolve){ setTimeout(resolve, delay); }).then(function(){
-    return apiGet('getMySubmissions', { studentNorm: normName(getMyName()) });
+    return apiGet('getMySubmissions', { studentNorm: identityNorm() });
   }).then(function(res){
     var found = (res.submissions||[]).filter(function(s){ return s.id===id; })[0];
     if(found) return found;
@@ -617,14 +774,12 @@ function pollForSubmission(id, attempt){
 }
 
 function handleSubmitWork(form){
-  var name = form.querySelector('#f_name').value.trim();
   var title = form.querySelector('#f_title').value.trim();
   var link = form.querySelector('#f_link').value.trim();
-  if(!name) return;
+  if(!hasIdentity()) return;
   if(!pendingImage && !link){ alert('請上傳一張圖片，或貼上圖片網址。'); return; }
   if(link && !safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
-  setMyName(name);
-  var payload = { id: uid('s_'), studentName:name, studentNorm:normName(name), title:title, createdAt:Date.now() };
+  var payload = { id: uid('s_'), studentName:getMyName(), studentSeat:getMySeat(), studentNorm:identityNorm(), title:title, createdAt:Date.now() };
   loading = true; render();
   if(pendingImage){
     // 圖片資料塞不進網址，用隱藏表單送出、讀不到回應，
@@ -664,7 +819,7 @@ function handleSubmitScore(form){
   var workId = form.getAttribute('data-work');
   var complete = reviewView.criteria.every(function(c){ return typeof currentScores[c.key]==='number'; });
   if(!complete) return;
-  var norm = normName(getMyName());
+  var norm = identityNorm();
   var payload = {
     id: workId + '__' + norm,
     workId: workId,
@@ -694,9 +849,10 @@ function handleSaveConfig(form){
     var existing = oldCriteria[i];
     return { key: existing ? existing.key : 'c' + (i+1) + '_' + uid(''), label: label };
   });
+  var namesRevealed = form.querySelector('#cfg_namesRevealed').checked;
   var authPass = teacherAuthPasscode();
   loading = true; render();
-  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealed:namesRevealed }).then(function(res){
     loading = false;
     if(!res.ok){ setToast('error','儲存失敗：權限錯誤，請重新登入教師專區。'); clearTeacherAuth(); setRole('home'); render(); return; }
     setTeacherAuthPasscode(passNew);
@@ -713,10 +869,10 @@ function handleExportCsv(){
   if(!teacherView) return;
   var criteria = teacherView.config.criteria;
   var rows = teacherView.rows;
-  var header = ['排名','編號','姓名','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
+  var header = ['排名','編號','座號','姓名','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
-    var cells = [i+1, r.workCode, r.studentName, r.title||''].concat(
+    var cells = [i+1, r.workCode, r.studentSeat, r.studentName, r.title||''].concat(
       criteria.map(function(c){ var v=r.perCrit[c.key]; return v==null?'':v.toFixed(2); })
     ).concat([r.overall==null?'':r.overall.toFixed(2), r.count]);
     lines.push(cells.map(csvCell).join(','));
@@ -753,7 +909,7 @@ function fallbackCopy(input, done){
 }
 function handleDeleteSubmission(id){
   if(!confirm('確定要刪除這件作品嗎？已經收到的評分也會一併刪除，無法復原。')) return;
-  apiGet('deleteSubmission', { id: id, studentNorm: normName(getMyName()) }).then(function(res){
+  apiGet('deleteSubmission', { id: id, studentNorm: identityNorm() }).then(function(res){
     if(!res.ok){ setToast('error','刪除失敗，請稍後再試。'); render(); return; }
     setToast('success','已刪除');
     loadMySubs();
@@ -777,12 +933,22 @@ function attachHandlers(){
       return;
     }
     if(e.target.closest('#wantMore')){
-      var norm2 = normName(getMyName());
       var done2 = reviewView ? reviewView.myDone : 0;
       sessionStorage.setItem('crit.extraTarget', String(done2+5));
       loadReviewView();
       return;
     }
+    if(e.target.closest('#saveIdentity')){
+      var seatVal = document.getElementById('id_seat').value.trim();
+      var nameVal = document.getElementById('id_name').value.trim();
+      if(!seatVal || !nameVal){ alert('座號和姓名都要填喔'); return; }
+      setMySeat(seatVal); setMyName(nameVal);
+      identityEditing = false;
+      setToast('success','身分已設定');
+      goTo(getRole());
+      return;
+    }
+    if(e.target.closest('#editIdentity')){ identityEditing = true; render(); return; }
     if(e.target.closest('#exportCsv')){ handleExportCsv(); return; }
     if(e.target.closest('#refreshData')){ loadTeacherView(); return; }
     if(e.target.closest('#saveConn')){ handleSaveConnection(document.getElementById('app')); return; }
@@ -795,20 +961,33 @@ function attachHandlers(){
     }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
+    if(e.target.closest('#startSlideshow')){
+      slideshowIndex = 0; slideshowPlaying = true; startSlideTimer(); render(); return;
+    }
+    var card = e.target.closest('.gallery-card');
+    if(card){
+      slideshowIndex = parseInt(card.getAttribute('data-idx'),10) || 0;
+      slideshowPlaying = true; startSlideTimer(); render(); return;
+    }
+    if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; render(); return; }
+    if(e.target.closest('#slidePrev')){ slideshowIndex = (slideshowIndex||0) - 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
+    if(e.target.closest('#slideNext')){ slideshowIndex = (slideshowIndex||0) + 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
+    if(e.target.closest('#slidePlayPause')){
+      slideshowPlaying = !slideshowPlaying;
+      if(slideshowPlaying) startSlideTimer(); else stopSlideTimer();
+      render();
+      return;
+    }
   };
   root.onchange = function(e){
-    if(e.target.id==='f_file'){ handleFileChange(e.target); }
+    if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
+    if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
+    if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; render(); return; }
+    if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; render(); return; }
   };
   root.onsubmit = function(e){
     var form = e.target;
     if(form.id==='submitForm'){ e.preventDefault(); handleSubmitWork(form); }
-    else if(form.id==='nameForm'){
-      e.preventDefault();
-      var v = form.querySelector('#r_name').value.trim();
-      if(!v) return;
-      setMyName(v);
-      loadReviewView();
-    }
     else if(form.id==='scoreForm'){ e.preventDefault(); handleSubmitScore(form); }
     else if(form.id==='teacherConfigForm'){ e.preventDefault(); handleSaveConfig(form); }
   };
