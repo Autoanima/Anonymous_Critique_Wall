@@ -80,7 +80,8 @@ button,input,textarea{font-family:inherit;}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--radius) + 2px);padding:16px;box-shadow:var(--shadow);}
 .form{display:flex;flex-direction:column;gap:12px;}
 .field{display:flex;flex-direction:column;gap:6px;font-size:0.85rem;color:var(--ink-soft);}
-.field input,.field textarea{font-size:1rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;}
+.field input,.field textarea,.field select{width:100%;font-size:1rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;}
+.assignment-pick{display:flex;flex-direction:column;gap:8px;}
 .field input:focus,.field textarea:focus{outline:2px solid var(--focus);outline-offset:1px;}
 .hint{font-size:0.8rem;color:var(--ink-soft);margin:0;}
 
@@ -139,6 +140,7 @@ button,input,textarea{font-family:inherit;}
 .divider{border:none;border-top:1px solid var(--line);margin:4px 0;}
 
 .gallery-controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;}
+.gallery-controls #startSlideshow{flex:0 0 auto;white-space:nowrap;}
 .gallery-controls .field{flex:1 1 160px;}
 .gallery-controls select{width:100%;font-size:1rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;}
 .gallery-toggles{display:flex;flex-direction:column;gap:6px;font-size:0.85rem;}
@@ -156,9 +158,9 @@ button,input,textarea{font-family:inherit;}
 
 .slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.94);z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;}
 .slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
-.slide-stage{max-width:min(92vw,720px);max-height:58vh;display:flex;align-items:center;justify-content:center;}
-.slide-stage img{max-width:100%;max-height:58vh;border-radius:8px;object-fit:contain;}
-.slide-stage iframe{width:min(92vw,720px);height:58vh;border:0;border-radius:8px;background:#fff;}
+.slide-stage{max-width:min(95vw,1200px);max-height:80vh;display:flex;align-items:center;justify-content:center;}
+.slide-stage img{max-width:100%;max-height:80vh;border-radius:8px;object-fit:contain;}
+.slide-stage iframe{width:min(95vw,1200px);height:80vh;border:0;border-radius:8px;background:#fff;}
 .slide-meta{color:#fff;display:flex;gap:10px;align-items:center;font-size:0.95rem;flex-wrap:wrap;justify-content:center;}
 .slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:2px 8px;border-radius:6px;font-weight:700;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:0.85rem;}
@@ -204,14 +206,18 @@ var teacherView = null;
 var loading = false;
 var currentScores = {};
 var pendingImage = null; // { dataUrl, base64, mime }
-var galleryData = null; // { rows, criteria }
+var galleryData = null; // { rows, criteria, assignments }
 var gallerySort = 'overall';
 var galleryShowNames = false;
 var galleryShowScores = false;
+var galleryAssignment = null; // null = 還沒選，選過之後固定成某個作業名稱或 '' (全部)
 var slideshowIndex = null;
 var slideshowPlaying = true;
 var slideshowTimer = null;
 var identityEditing = false;
+var assignmentsList = []; // 從 home/gallery/teacherFetch 回應同步過來
+var reviewAssignment = null; // null = 還沒選要評哪個作業
+var teacherAssignmentFilter = '';
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -262,6 +268,9 @@ function apiGet(action, payload){
   return fetch(apiUrl + '?' + qs, { method:'GET' }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
+  }).then(function(json){
+    if(json && Array.isArray(json.assignments) && json.assignments.length) assignmentsList = json.assignments;
+    return json;
   });
 }
 // 只用在「上傳圖片」：資料量太大塞不進網址，用 fetch 的 no-cors POST
@@ -395,24 +404,40 @@ function screenHome(){
   );
 }
 
+function assignmentSelectHtml(id, includeAll){
+  var opts = (includeAll ? '<option value="">全部作業</option>' : '') +
+    assignmentsList.map(function(a){ return '<option value="'+escapeAttr(a)+'">'+escapeHtml(a)+'</option>'; }).join('');
+  return '<select id="'+id+'">'+opts+'</select>';
+}
+
+function checklistHtml(){
+  if(mySubs === null) return '';
+  var byAssignment = {};
+  mySubs.forEach(function(s){ var a = s.assignment||''; (byAssignment[a] = byAssignment[a] || []).push(s); });
+  var rows = (assignmentsList.length ? assignmentsList : ['']).map(function(a){
+    var subsForA = byAssignment[a] || [];
+    if(!subsForA.length){
+      return '<li class="mine-item"><span class="mine-thumb mine-thumb-empty"></span><span class="mine-info">'+escapeHtml(a||'（未分類）')+'：<span class="hint">尚未交</span></span></li>';
+    }
+    return subsForA.map(function(s){
+      var embed = toEmbed(s.driveLink);
+      var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+      return '<li class="mine-item">' + thumb +
+        '<span class="mine-info">'+escapeHtml(a||'（未分類）')+'：<span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'')+'</span>' +
+        '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>' +
+      '</li>';
+    }).join('');
+  }).join('');
+  return (
+    '<div class="card"><h2 class="screen-title" style="font-size:1rem">作業繳交狀況</h2><ul class="mine-list">'+rows+'</ul>' +
+    (mySubs.length ? '<button type="button" class="btn btn-accent" id="downloadBundle" style="width:100%;margin-top:10px" '+(loading?'disabled':'')+'>打包下載我的所有作品</button>' : '') +
+    '</div>'
+  );
+}
+
 function screenSubmit(){
   if(!hasIdentity()){
     return '<h1 class="screen-title">交作品</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能交作品。</p>';
-  }
-  var listHtml = '';
-  if(mySubs === null){
-    listHtml = '';
-  } else if(mySubs.length){
-    listHtml = '<div class="card"><h2 class="screen-title" style="font-size:1rem">你已經交過的作品</h2><ul class="mine-list">' +
-      mySubs.map(function(s){
-        var embed = toEmbed(s.driveLink);
-        var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
-        return '<li class="mine-item">' + thumb +
-          '<span class="mine-info"><span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'（未命名）')+'</span>' +
-          '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>' +
-        '</li>';
-      }).join('') +
-    '</ul></div>';
   }
   var previewHtml = pendingImage ? (
     '<p class="hint" style="margin-top:8px">已選擇：<strong>'+escapeHtml(pendingImage.name||'圖片')+'</strong>（按鈕旁邊顯示「未選擇任何檔案」是正常的，不影響送出）</p>' +
@@ -420,9 +445,10 @@ function screenSubmit(){
   ) : '';
   return (
     '<h1 class="screen-title">交作品</h1>' +
-    listHtml +
+    checklistHtml() +
     '<form id="submitForm" class="card form">' +
-      '<label class="field"><span>作品名稱（選填）</span><input id="f_title" placeholder="幫作品取個名字"></label>' +
+      '<label class="field"><span>這是哪一份作業？</span>'+assignmentSelectHtml('f_assignment', false)+'</label>' +
+      '<label class="field"><span>想要說的話（選填）</span><input id="f_title" placeholder="跟大家分享你的想法"></label>' +
       '<div class="field"><span>上傳作品圖片</span>' +
         '<div class="upload-box">' +
           '<input type="file" accept="image/*" id="f_file">' +
@@ -454,12 +480,25 @@ function screenReview(){
   if(!hasIdentity()){
     return '<h1 class="screen-title">我要評分</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能開始評分。</p>';
   }
+  if(!reviewAssignment){
+    if(!assignmentsList.length){
+      return '<h1 class="screen-title">我要評分</h1><p class="hint">載入中...</p>';
+    }
+    return (
+      '<h1 class="screen-title">我要評分</h1>' +
+      '<div class="card assignment-pick">' +
+        '<p class="hint">選擇要評哪一份作業：</p>' +
+        assignmentsList.map(function(a){ return '<button type="button" class="btn btn-accent" data-pick-assignment="'+escapeAttr(a)+'">'+escapeHtml(a)+'</button>'; }).join('') +
+      '</div>'
+    );
+  }
+  var switchBtn = '<button type="button" class="footer-link" id="switchAssignment" style="margin-bottom:8px;display:block">目前評分：'+escapeHtml(reviewAssignment)+'（點此換一份作業）</button>';
   if(!reviewView){
-    return '<h1 class="screen-title">我要評分</h1><p class="hint">載入中...</p>';
+    return '<h1 class="screen-title">我要評分</h1>' + switchBtn + '<p class="hint">載入中...</p>';
   }
   if(reviewView.done){
     return (
-      '<h1 class="screen-title">我要評分</h1>' +
+      '<h1 class="screen-title">我要評分</h1>' + switchBtn +
       '<div class="card done-card">' +
         '<p class="big-check">已完成 '+reviewView.myDone+' / '+reviewView.required+' 件評分，謝謝你！</p>' +
         (reviewView.leftover>0 ? '<button class="btn btn-accent" id="wantMore">還想再多評幾件</button>' : '<p class="hint">目前沒有其他作品可以評了。</p>') +
@@ -470,7 +509,7 @@ function screenReview(){
   var work = reviewView.work;
   var embed = toEmbed(work.driveLink);
   return (
-    '<h1 class="screen-title">我要評分</h1>' +
+    '<h1 class="screen-title">我要評分</h1>' + switchBtn +
     '<p class="progress">進度：'+reviewView.myDone+' / '+reviewView.required+'</p>' +
     '<div class="card work-card">' +
       '<div class="work-code">'+escapeHtml(work.workCode)+'</div>' +
@@ -489,6 +528,7 @@ function sortedGalleryRows(){
   var key = gallerySort;
   function val(r){ return key==='overall' ? r.overall : r.perCrit[key]; }
   var rows = galleryData.rows.slice();
+  if(galleryAssignment) rows = rows.filter(function(r){ return r.assignment===galleryAssignment; });
   rows.sort(function(a,b){
     var av = val(a), bv = val(b);
     av = av==null ? -1 : av; bv = bv==null ? -1 : bv;
@@ -514,9 +554,14 @@ function screenGallery(){
   if(!galleryData){
     return '<h1 class="screen-title">作品牆</h1><p class="hint">載入中...</p>';
   }
+  if(galleryAssignment===null){
+    galleryAssignment = (galleryData.assignments && galleryData.assignments[0]) || '';
+  }
   var rows = sortedGalleryRows();
   var revealed = !!galleryData.namesRevealed;
   if(!revealed) galleryShowNames = false;
+  var assignmentOptions = '<option value="">全部作業</option>' +
+    (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
   var sortOptions = '<option value="overall"'+(gallerySort==='overall'?' selected':'')+'>總平均（預設）</option>' +
     galleryData.criteria.map(function(c){ return '<option value="'+escapeAttr(c.key)+'"'+(gallerySort===c.key?' selected':'')+'>'+escapeHtml(c.label)+'</option>'; }).join('');
   var cards = rows.map(function(r, i){
@@ -529,6 +574,7 @@ function screenGallery(){
   return (
     '<h1 class="screen-title">作品牆</h1>' +
     '<div class="gallery-controls card">' +
+      '<label class="field"><span>哪一份作業</span><select id="galleryAssignment">'+assignmentOptions+'</select></label>' +
       '<label class="field"><span>排序依據</span><select id="gallerySort">'+sortOptions+'</select></label>' +
       '<div class="gallery-toggles">' +
         '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（老師尚未開放）')+'</label>' +
@@ -536,7 +582,7 @@ function screenGallery(){
       '</div>' +
       '<button type="button" class="btn btn-primary" id="startSlideshow" '+(rows.length?'':'disabled')+'>播放展示</button>' +
     '</div>' +
-    (rows.length ? '<div class="gallery-grid">'+cards+'</div>' : '<div class="card"><p class="hint">目前還沒有作品。</p></div>')
+    (rows.length ? '<div class="gallery-grid">'+cards+'</div>' : '<div class="card"><p class="hint">這份作業目前還沒有作品。</p></div>')
   );
 }
 function slideshowHtml(){
@@ -565,14 +611,37 @@ function startSlideTimer(){
 function stopSlideTimer(){
   if(slideshowTimer){ clearInterval(slideshowTimer); slideshowTimer = null; }
 }
+function enterFullscreen(){
+  var el = document.documentElement;
+  var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if(req){ try{ req.call(el); }catch(e){} }
+}
+function exitFullscreenIfActive(){
+  var isFs = document.fullscreenElement || document.webkitFullscreenElement;
+  var exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+  if(isFs && exit){ try{ exit.call(document); }catch(e){} }
+}
+function onFullscreenChange(){
+  var isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if(!isFs && slideshowIndex!=null){
+    stopSlideTimer();
+    slideshowIndex = null;
+    render();
+  }
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
 function screenTeacher(){
   if(!teacherView){
     return '<h1 class="screen-title">教師專區</h1><p class="hint">載入中...</p>';
   }
   var namesHidden = localStorage.getItem('crit.hideNames')==='1';
-  var criteria = teacherView.config.criteria;
-  var rows = teacherView.rows;
+  var cfg = teacherView.config;
+  var criteria = cfg.criteria;
+  var assignments = cfg.assignments || [];
+  var allRows = teacherView.rows;
+  var rows = teacherAssignmentFilter ? allRows.filter(function(r){ return r.assignment===teacherAssignmentFilter; }) : allRows;
   var head = criteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
   var tableRows = rows.map(function(r, i){
     var cells = criteria.map(function(c){
@@ -587,6 +656,7 @@ function screenTeacher(){
       '<td class="mono">'+escapeHtml(r.workCode)+'</td>' +
       '<td class="num">'+(namesHidden ? '●' : escapeHtml(r.studentSeat))+'</td>' +
       '<td>'+(namesHidden ? '●●●' : escapeHtml(r.studentName))+'</td>' +
+      '<td>'+escapeHtml(r.assignment||'—')+'</td>' +
       '<td>'+escapeHtml(r.title||'—')+'</td>' +
       cells +
       '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+'</td>' +
@@ -594,28 +664,45 @@ function screenTeacher(){
     '</tr>';
   }).join('');
 
-  var required = teacherView.config.reviewsPerStudent;
-  var reviewers = teacherView.reviewers || [];
-  var reviewerRows = reviewers.map(function(rv){
-    return '<tr>' +
-      '<td class="num">'+(namesHidden ? '●' : escapeHtml(rv.seat))+'</td>' +
-      '<td>'+(namesHidden ? '●●●' : escapeHtml(rv.name))+'</td>' +
-      '<td>'+(rv.submitted ? '<span class="mono">'+escapeHtml(rv.workCodes)+'</span>' : '<span class="hint">未交作品</span>')+'</td>' +
-      '<td class="num">'+rv.reviewCount+'</td>' +
-      '<td>'+(rv.met
-        ? '<span style="color:var(--good);font-weight:700">已達標</span>'
-        : '<span style="color:var(--warn);font-weight:700">還差 '+(required-rv.reviewCount)+' 件</span>')+'</td>' +
-    '</tr>';
-  }).join('');
+  var required = cfg.reviewsPerStudent;
+  var reviewerSection;
+  if(teacherAssignmentFilter && teacherView.reviewersByAssignment){
+    var reviewers = teacherView.reviewersByAssignment[teacherAssignmentFilter] || [];
+    var reviewerRows = reviewers.map(function(rv){
+      return '<tr>' +
+        '<td class="num">'+(namesHidden ? '●' : escapeHtml(rv.seat))+'</td>' +
+        '<td>'+(namesHidden ? '●●●' : escapeHtml(rv.name))+'</td>' +
+        '<td>'+(rv.submitted ? '<span class="mono">'+escapeHtml(rv.workCodes)+'</span>' : '<span class="hint">未交作品</span>')+'</td>' +
+        '<td class="num">'+rv.reviewCount+'</td>' +
+        '<td>'+(rv.met
+          ? '<span style="color:var(--good);font-weight:700">已達標</span>'
+          : '<span style="color:var(--warn);font-weight:700">還差 '+(required-rv.reviewCount)+' 件</span>')+'</td>' +
+      '</tr>';
+    }).join('');
+    reviewerSection =
+      '<h2 class="screen-title" style="font-size:1.1rem">評分進度：'+escapeHtml(teacherAssignmentFilter)+'</h2>' +
+      '<p class="hint">每人要評 '+required+' 件，這裡可以看誰還沒評完、誰額外多評了幾件（不同作業分開計算）。</p>' +
+      '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
+        '<th>座號</th><th>姓名</th><th>已交作品</th><th>已評分數</th><th>狀態</th>' +
+      '</tr></thead><tbody>' + (reviewerRows || '<tr><td colspan="99" class="hint">目前還沒有人交作品或評分。</td></tr>') + '</tbody></table></div>';
+  } else {
+    reviewerSection =
+      '<h2 class="screen-title" style="font-size:1.1rem">評分進度</h2>' +
+      '<div class="card"><p class="hint">上面「篩選作業」選一個特定作業，才能看到那份作業的評分進度——不同作業的評分是分開算的，沒辦法合併顯示。</p></div>';
+  }
+
+  var assignmentFilterOptions = '<option value="">全部作業</option>' +
+    assignments.map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(teacherAssignmentFilter===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
 
   var configHtml =
     '<details class="card config-card"><summary>教師設定</summary>' +
       '<form id="teacherConfigForm" class="form">' +
-        '<label class="field"><span>每人需要評幾件作品</span><input type="number" min="1" max="50" id="cfg_n" value="'+teacherView.config.reviewsPerStudent+'"></label>' +
+        '<label class="field"><span>作業清單（每行一個作業名稱，交作品／作品牆／評分的選單都會用這個）</span><textarea id="cfg_assignments">'+escapeHtml(assignments.join('\n'))+'</textarea></label>' +
+        '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
         '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
-        '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(teacherView.config.teacherPasscode)+'"></label>' +
-        '<label class="toggle-row"><input type="checkbox" id="cfg_namesRevealed" '+(teacherView.config.namesRevealed?'checked':'')+'> 開放作品牆顯示姓名／座號（建議評分截止後再打開）</label>' +
-        '<p class="hint">密語驗證在伺服器端做，其他同學看不到。建議在開放評分「前」就設定好題目，中途更改題目可能會讓已收到的分數對不上新題目。</p>' +
+        '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(cfg.teacherPasscode)+'"></label>' +
+        '<label class="toggle-row"><input type="checkbox" id="cfg_namesRevealed" '+(cfg.namesRevealed?'checked':'')+'> 開放作品牆顯示姓名／座號（建議評分截止後再打開）</label>' +
+        '<p class="hint">密語驗證在伺服器端做，其他同學看不到。建議在開放評分「前」就設定好作業清單和題目，中途更改可能會讓已收到的分數對不上。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
       '<hr class="divider">' +
@@ -627,21 +714,18 @@ function screenTeacher(){
     '<div class="stat-row">' +
       statTile(teacherView.submissionCount, '件作品') +
       statTile(teacherView.reviewCount, '筆評分') +
-      statTile(rows.filter(function(r){ return r.count>0; }).length, '已有分數') +
+      statTile(allRows.filter(function(r){ return r.count>0; }).length, '已有分數') +
     '</div>' +
+    '<div class="card"><label class="field" style="margin:0"><span>篩選作業</span><select id="teacherAssignmentFilter">'+assignmentFilterOptions+'</select></label></div>' +
     '<div class="cta-row">' +
       '<button class="btn btn-accent" id="refreshData">重新整理資料</button>' +
       '<button class="btn btn-accent" id="toggleNames">'+(namesHidden?'顯示姓名':'隱藏姓名')+'</button>' +
       '<button class="btn btn-accent" id="exportCsv">匯出 CSV</button>' +
     '</div>' +
     '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-      '<th>排名</th><th>圖片</th><th>編號</th><th>座號</th><th>姓名</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
+      '<th>排名</th><th>圖片</th><th>編號</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
-    '<h2 class="screen-title" style="font-size:1.1rem">評分進度</h2>' +
-    '<p class="hint">每人要評 '+required+' 件，這裡可以看誰還沒評完、誰額外多評了幾件。</p>' +
-    '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-      '<th>座號</th><th>姓名</th><th>已交作品</th><th>已評分數</th><th>狀態</th>' +
-    '</tr></thead><tbody>' + (reviewerRows || '<tr><td colspan="99" class="hint">目前還沒有人交作品或評分。</td></tr>') + '</tbody></table></div>' +
+    reviewerSection +
     configHtml
   );
 }
@@ -689,9 +773,9 @@ function loadMySubs(){
   }).catch(function(e){ mySubs = []; setToast('error','載入失敗：'+e.message); render(); });
 }
 function loadReviewView(){
-  if(!hasIdentity() || !apiUrl) { render(); return; }
+  if(!hasIdentity() || !apiUrl || !reviewAssignment) { render(); return; }
   reviewView = null; render();
-  apiGet('getNextWork', { reviewerNorm: identityNorm(), extraTarget: getExtraTarget() }).then(function(res){
+  apiGet('getNextWork', { reviewerNorm: identityNorm(), assignment: reviewAssignment, extraTarget: getExtraTarget() }).then(function(res){
     reviewView = res; render();
   }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
 }
@@ -730,7 +814,12 @@ function goTo(role){
   setRole(role);
   if(role==='home') loadHome();
   else if(role==='submit') loadMySubs();
-  else if(role==='review'){ if(hasIdentity()) loadReviewView(); else render(); }
+  else if(role==='review'){
+    if(hasIdentity()){
+      if(!reviewAssignment && assignmentsList.length===1) reviewAssignment = assignmentsList[0];
+      if(reviewAssignment) loadReviewView(); else render();
+    } else render();
+  }
   else if(role==='gallery') loadGallery();
   else if(role==='teacher') loadTeacherView();
   else render();
@@ -774,12 +863,14 @@ function pollForSubmission(id, attempt){
 }
 
 function handleSubmitWork(form){
+  var assignment = form.querySelector('#f_assignment').value;
   var title = form.querySelector('#f_title').value.trim();
   var link = form.querySelector('#f_link').value.trim();
   if(!hasIdentity()) return;
+  if(!assignment){ alert('請選擇這是哪一份作業'); return; }
   if(!pendingImage && !link){ alert('請上傳一張圖片，或貼上圖片網址。'); return; }
   if(link && !safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
-  var payload = { id: uid('s_'), studentName:getMyName(), studentSeat:getMySeat(), studentNorm:identityNorm(), title:title, createdAt:Date.now() };
+  var payload = { id: uid('s_'), studentName:getMyName(), studentSeat:getMySeat(), studentNorm:identityNorm(), title:title, assignment:assignment, createdAt:Date.now() };
   loading = true; render();
   if(pendingImage){
     // 圖片資料塞不進網址，用隱藏表單送出、讀不到回應，
@@ -850,9 +941,10 @@ function handleSaveConfig(form){
     return { key: existing ? existing.key : 'c' + (i+1) + '_' + uid(''), label: label };
   });
   var namesRevealed = form.querySelector('#cfg_namesRevealed').checked;
+  var newAssignments = form.querySelector('#cfg_assignments').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
   var authPass = teacherAuthPasscode();
   loading = true; render();
-  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealed:namesRevealed }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealed:namesRevealed, assignments:newAssignments }).then(function(res){
     loading = false;
     if(!res.ok){ setToast('error','儲存失敗：權限錯誤，請重新登入教師專區。'); clearTeacherAuth(); setRole('home'); render(); return; }
     setTeacherAuthPasscode(passNew);
@@ -868,11 +960,11 @@ function csvCell(v){
 function handleExportCsv(){
   if(!teacherView) return;
   var criteria = teacherView.config.criteria;
-  var rows = teacherView.rows;
-  var header = ['排名','編號','座號','姓名','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
+  var rows = teacherAssignmentFilter ? teacherView.rows.filter(function(r){ return r.assignment===teacherAssignmentFilter; }) : teacherView.rows;
+  var header = ['排名','編號','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
-    var cells = [i+1, r.workCode, r.studentSeat, r.studentName, r.title||''].concat(
+    var cells = [i+1, r.workCode, r.studentSeat, r.studentName, r.assignment||'', r.title||''].concat(
       criteria.map(function(c){ var v=r.perCrit[c.key]; return v==null?'':v.toFixed(2); })
     ).concat([r.overall==null?'':r.overall.toFixed(2), r.count]);
     lines.push(cells.map(csvCell).join(','));
@@ -881,7 +973,7 @@ function handleExportCsv(){
   var blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
-  a.href = url; a.download = '評分總表.csv';
+  a.href = url; a.download = (teacherAssignmentFilter ? teacherAssignmentFilter+'_' : '') + '評分總表.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
 }
@@ -914,6 +1006,27 @@ function handleDeleteSubmission(id){
     setToast('success','已刪除');
     loadMySubs();
   }).catch(function(e){ setToast('error','刪除失敗：'+e.message); render(); });
+}
+function handleDownloadBundle(){
+  loading = true; render();
+  apiGet('downloadBundle', { studentNorm: identityNorm(), studentName: getMyName() }).then(function(res){
+    loading = false;
+    if(!res.ok){
+      setToast('error', res.error==='no_files' ? '目前沒有可以打包下載的作品檔案。' : '下載失敗，請稍後再試。');
+      render();
+      return;
+    }
+    var byteChars = atob(res.zipBase64);
+    var byteNumbers = new Array(byteChars.length);
+    for(var i=0;i<byteChars.length;i++) byteNumbers[i] = byteChars.charCodeAt(i);
+    var blob = new Blob([new Uint8Array(byteNumbers)], { type:'application/zip' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = res.filename || '作品.zip';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
+    render();
+  }).catch(function(e){ loading=false; setToast('error','下載失敗：'+e.message); render(); });
 }
 
 function attachHandlers(){
@@ -961,15 +1074,19 @@ function attachHandlers(){
     }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
+    if(e.target.closest('#downloadBundle')){ handleDownloadBundle(); return; }
+    var pickA = e.target.closest('[data-pick-assignment]');
+    if(pickA){ reviewAssignment = pickA.getAttribute('data-pick-assignment'); loadReviewView(); return; }
+    if(e.target.closest('#switchAssignment')){ reviewAssignment = null; reviewView = null; render(); return; }
     if(e.target.closest('#startSlideshow')){
-      slideshowIndex = 0; slideshowPlaying = true; startSlideTimer(); render(); return;
+      slideshowIndex = 0; slideshowPlaying = true; startSlideTimer(); enterFullscreen(); render(); return;
     }
     var card = e.target.closest('.gallery-card');
     if(card){
       slideshowIndex = parseInt(card.getAttribute('data-idx'),10) || 0;
-      slideshowPlaying = true; startSlideTimer(); render(); return;
+      slideshowPlaying = true; startSlideTimer(); enterFullscreen(); render(); return;
     }
-    if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; render(); return; }
+    if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
     if(e.target.closest('#slidePrev')){ slideshowIndex = (slideshowIndex||0) - 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
     if(e.target.closest('#slideNext')){ slideshowIndex = (slideshowIndex||0) + 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
     if(e.target.closest('#slidePlayPause')){
@@ -982,8 +1099,10 @@ function attachHandlers(){
   root.onchange = function(e){
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
     if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
+    if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; render(); return; }
     if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; render(); return; }
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; render(); return; }
+    if(e.target.id==='teacherAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
   };
   root.onsubmit = function(e){
     var form = e.target;
