@@ -158,13 +158,25 @@ button,input,textarea{font-family:inherit;}
 
 .slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.94);z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;}
 .slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
-.slide-stage{max-width:min(95vw,1200px);max-height:80vh;display:flex;align-items:center;justify-content:center;}
-.slide-stage img{max-width:100%;max-height:80vh;border-radius:8px;object-fit:contain;}
-.slide-stage iframe{width:min(95vw,1200px);height:80vh;border:0;border-radius:8px;background:#fff;}
+.slide-stage{width:min(95vw,1400px);height:80vh;display:flex;align-items:center;justify-content:center;}
+.slide-stage img{width:100%;height:100%;border-radius:8px;object-fit:contain;}
+.slide-stage iframe{width:100%;height:100%;border:0;border-radius:8px;background:#fff;}
 .slide-meta{color:#fff;display:flex;gap:10px;align-items:center;font-size:0.95rem;flex-wrap:wrap;justify-content:center;}
 .slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:2px 8px;border-radius:6px;font-weight:700;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:0.85rem;}
 .slide-controls{display:flex;gap:10px;}
+
+.equip-current{text-align:center;}
+.equip-turn-label{margin:6px 0 2px;color:var(--ink-soft);font-size:0.85rem;}
+.equip-turn-name{font-family:'Noto Serif TC',serif;font-size:1.4rem;font-weight:700;margin:0 0 8px;display:flex;align-items:center;justify-content:center;gap:8px;}
+.equip-timer{font-family:'JetBrains Mono',monospace;font-size:2.6rem;font-weight:700;color:var(--accent-strong);margin:6px 0;font-variant-numeric:tabular-nums;}
+.equip-swatch{display:inline-block;width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.15);flex-shrink:0;}
+.equip-order-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
+.equip-order-list li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;}
+.equip-order-list li.equip-active{background:var(--accent-soft);font-weight:700;}
+.equip-order-edit{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
+.equip-order-edit-row{display:flex;align-items:center;gap:8px;font-size:0.9rem;}
+.equip-order-edit-row select{margin-left:auto;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);}
 
 @media (max-width:400px){
   .cta-row{flex-direction:column;}
@@ -218,6 +230,15 @@ var identityEditing = false;
 var assignmentsList = []; // 從 home/gallery/teacherFetch 回應同步過來
 var reviewAssignment = null; // null = 還沒選要評哪個作業
 var teacherAssignmentFilter = '';
+var galleryViewMode = 'grid'; // 'grid' | 'table'
+var equipmentData = null; // { roster, leader, order, perPersonMinutes, currentIndex, turnStartedAt, running }
+var equipmentTickTimer = null;
+var equipmentPollTimer = null;
+var equipAdvancing = false; // 避免同一台裝置在網路回應前重複觸發換人
+var RAINBOW_ORDER = ['紅','橙','黃','綠','藍','靛','紫'];
+var teacherConfigOpen = false;
+var equipmentAdminOpen = false;
+var RAINBOW_COLORS = {'紅':'#E4483B','橙':'#E08A3D','黃':'#D9B23C','綠':'#3F9D5C','藍':'#3B6FB0','靛':'#4B4FA8','紫':'#8A4FAE'};
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -571,6 +592,12 @@ function screenGallery(){
       '<div class="gallery-meta">'+galleryMetaHtml(r, scoreVal)+'</div>' +
     '</div>';
   }).join('');
+  var bodyHtml;
+  if(galleryViewMode==='table'){
+    bodyHtml = galleryTableHtml(rows);
+  } else {
+    bodyHtml = rows.length ? '<div class="gallery-grid">'+cards+'</div>' : '<div class="card"><p class="hint">這份作業目前還沒有作品。</p></div>';
+  }
   return (
     '<h1 class="screen-title">作品牆</h1>' +
     '<div class="gallery-controls card">' +
@@ -582,8 +609,37 @@ function screenGallery(){
       '</div>' +
       '<button type="button" class="btn btn-primary" id="startSlideshow" '+(rows.length?'':'disabled')+'>播放展示</button>' +
     '</div>' +
-    (rows.length ? '<div class="gallery-grid">'+cards+'</div>' : '<div class="card"><p class="hint">這份作業目前還沒有作品。</p></div>')
+    '<div class="cta-row">' +
+      '<button type="button" class="btn '+(galleryViewMode==='grid'?'btn-primary':'btn-accent')+'" id="galleryModeGrid">圖片牆</button>' +
+      '<button type="button" class="btn '+(galleryViewMode==='table'?'btn-primary':'btn-accent')+'" id="galleryModeTable">總表與排名</button>' +
+    '</div>' +
+    bodyHtml
   );
+}
+function galleryTableHtml(rows){
+  if(!rows.length) return '<div class="card"><p class="hint">這份作業目前還沒有作品。</p></div>';
+  var head = galleryData.criteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
+  var body = rows.map(function(r, i){
+    var cells = galleryData.criteria.map(function(c){
+      var v = r.perCrit[c.key];
+      return '<td class="num">'+(galleryShowScores ? (v==null?'—':v.toFixed(1)) : '—')+'</td>';
+    }).join('');
+    var embed = toEmbed(r.driveLink);
+    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+    var nameCell = (galleryShowNames && r.studentName) ? escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName) : '—';
+    return '<tr>' +
+      '<td class="num">'+(i+1)+'</td>' +
+      '<td>'+thumb+'</td>' +
+      '<td class="mono">'+escapeHtml(r.workCode)+'</td>' +
+      '<td>'+nameCell+'</td>' +
+      cells +
+      '<td class="num strong">'+(galleryShowScores ? (r.overall==null?'—':r.overall.toFixed(2)) : '—')+'</td>' +
+      '<td class="num">'+r.count+'</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
+    '<th>排名</th><th>圖片</th><th>編號</th><th>姓名</th>' + head + '<th>總平均</th><th>份數</th>' +
+  '</tr></thead><tbody>'+body+'</tbody></table></div>';
 }
 function slideshowHtml(){
   var rows = sortedGalleryRows();
@@ -631,6 +687,166 @@ function onFullscreenChange(){
 }
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+// ---------- 器材輪值 ----------
+function fmtTime(ms){
+  if(ms<0) ms=0;
+  var totalSec = Math.floor(ms/1000);
+  var m = Math.floor(totalSec/60), s = totalSec%60;
+  return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+}
+function loadEquipment(){
+  if(!apiUrl){ equipmentData=null; render(); return; }
+  apiGet('equipmentGet').then(function(res){
+    equipmentData = res.equipment;
+    render();
+    ensureEquipmentTicking();
+  }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
+}
+function stopEquipmentTicking(){
+  if(equipmentTickTimer){ clearInterval(equipmentTickTimer); equipmentTickTimer=null; }
+  if(equipmentPollTimer){ clearInterval(equipmentPollTimer); equipmentPollTimer=null; }
+}
+function ensureEquipmentTicking(){
+  // 快速的每秒重畫「只」在學生看的器材輪值畫面做，教師畫面上有 <details> 展開／
+  // 表單輸入，每秒整頁重畫會把它們收合、打斷輸入，所以教師那邊只靠下面的輪詢。
+  if(!equipmentTickTimer){
+    equipmentTickTimer = setInterval(function(){
+      if(getRole()!=='equipment'){ clearInterval(equipmentTickTimer); equipmentTickTimer=null; return; }
+      render();
+    }, 1000);
+  }
+  if(!equipmentPollTimer){
+    equipmentPollTimer = setInterval(function(){
+      var r = getRole();
+      if(r!=='equipment' && r!=='teacher'){ clearInterval(equipmentPollTimer); equipmentPollTimer=null; return; }
+      if(!apiUrl) return;
+      apiGet('equipmentGet').then(function(res){
+        equipmentData = res.equipment;
+        maybeAutoAdvance();
+        if(getRole()==='equipment' || getRole()==='teacher') render();
+      }).catch(function(){});
+    }, 6000);
+  }
+}
+function maybeAutoAdvance(){
+  if(!equipmentData || !equipmentData.running || !equipmentData.order || !equipmentData.order.length) return;
+  if(!teacherAuthPasscode()) return; // 只有已登入教師專區的裝置會自動觸發換人，避免多台裝置搶著換
+  if(equipAdvancing) return;
+  var totalMs = equipmentData.perPersonMinutes * 60000;
+  var elapsed = Date.now() - equipmentData.turnStartedAt;
+  if(elapsed >= totalMs){
+    equipAdvancing = true;
+    apiGet('equipmentAdvance', { passcode: teacherAuthPasscode() }).then(function(res){
+      equipAdvancing = false;
+      if(res.ok) equipmentData = res.equipment;
+      render();
+    }).catch(function(){ equipAdvancing = false; });
+  }
+}
+function screenEquipment(){
+  if(!equipmentData){
+    return '<h1 class="screen-title">器材輪值</h1><p class="hint">載入中...</p>';
+  }
+  var eq = equipmentData;
+  var order = eq.order || [];
+  var current = order[eq.currentIndex];
+  var next = order.length ? order[(eq.currentIndex+1) % order.length] : null;
+  var remaining = (eq.running && eq.turnStartedAt) ? (eq.perPersonMinutes*60000 - (Date.now()-eq.turnStartedAt)) : null;
+  var mainHtml;
+  if(!order.length){
+    mainHtml = '<div class="card"><p class="hint">老師還沒排定輪流順序。</p></div>';
+  } else {
+    mainHtml =
+      '<div class="card equip-current" style="border-left:8px solid '+(current?RAINBOW_COLORS[current.color]:'#999')+'">' +
+        '<p class="hint">組長：'+escapeHtml(eq.leader||'（尚未抽）')+'</p>' +
+        '<p class="equip-turn-label">目前使用：</p>' +
+        '<p class="equip-turn-name">'+(current ? ('<span class="equip-swatch" style="background:'+RAINBOW_COLORS[current.color]+'"></span>'+escapeHtml(current.color)+'夾・'+escapeHtml(current.name)) : '—')+'</p>' +
+        (remaining!=null ? '<p class="equip-timer">'+fmtTime(remaining)+'</p>' : '<p class="hint">尚未開始計時</p>') +
+        '<p class="hint">下一位：'+(next ? (escapeHtml(next.color)+'夾・'+escapeHtml(next.name)) : '—')+'</p>' +
+      '</div>' +
+      '<div class="card"><h2 class="screen-title" style="font-size:1rem">完整順序</h2><ol class="equip-order-list">' +
+        order.map(function(p,i){
+          return '<li class="'+(i===eq.currentIndex?'equip-active':'')+'"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span>'+escapeHtml(p.color)+'夾・'+escapeHtml(p.name)+(p.name===eq.leader?'（組長）':'')+'</li>';
+        }).join('') +
+      '</ol></div>';
+  }
+  return '<h1 class="screen-title">器材輪值</h1>' + mainHtml;
+}
+function equipmentAdminHtml(){
+  if(!equipmentData){
+    return '<details class="card config-card"'+(equipmentAdminOpen?' open':'')+'><summary id="equipmentAdminSummary">器材輪值管理</summary><p class="hint">載入中...</p></details>';
+  }
+  var eq = equipmentData;
+  var rosterNames = eq.roster.map(function(m){ return m.name; }).join('\n');
+  var attendanceRows = eq.roster.map(function(m){
+    return '<label class="toggle-row"><input type="checkbox" class="equip-att" data-name="'+escapeAttr(m.name)+'" '+(m.present?'checked':'')+'> '+escapeHtml(m.name)+(m.present?'':'（缺席）')+'</label>';
+  }).join('');
+  var orderRows = (eq.order||[]).map(function(p,i){
+    var opts = RAINBOW_ORDER.map(function(c){ return '<option value="'+c+'"'+(p.color===c?' selected':'')+'>'+c+'</option>'; }).join('');
+    return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span><span>'+(i+1)+'. '+escapeHtml(p.name)+(p.name===eq.leader?'（組長）':'')+'</span><select class="equip-color-select" data-index="'+i+'">'+opts+'</select></div>';
+  }).join('');
+  return (
+    '<details class="card config-card"'+(equipmentAdminOpen?' open':'')+'><summary id="equipmentAdminSummary">器材輪值管理</summary>' +
+      '<div class="form">' +
+        '<label class="field"><span>組員名單（每行一個名字）</span><textarea id="equip_roster">'+escapeHtml(rosterNames)+'</textarea></label>' +
+        '<button type="button" class="btn btn-primary" id="equipSaveRoster">儲存名單</button>' +
+        '<hr class="divider">' +
+        (attendanceRows ? ('<p class="hint">出席狀態：</p>' + attendanceRows + '<button type="button" class="btn btn-primary" id="equipSaveAttendance">儲存出席</button>') : '<p class="hint">先儲存名單，才能設定出席。</p>') +
+        '<hr class="divider">' +
+        '<p class="hint">組長：<strong>'+escapeHtml(eq.leader||'（尚未抽）')+'</strong></p>' +
+        '<button type="button" class="btn btn-accent" id="equipDrawLeader">隨機抽組長</button>' +
+        '<hr class="divider">' +
+        '<label class="field"><span>每人使用時間（分鐘）</span><input type="number" min="1" max="60" id="equip_minutes" value="'+eq.perPersonMinutes+'"></label>' +
+        '<button type="button" class="btn btn-primary" id="equipSaveDuration">儲存時間</button>' +
+        '<hr class="divider">' +
+        '<button type="button" class="btn btn-accent" id="equipBuildOrder">重新排定輪流順序（隨機，會重新計時）</button>' +
+        (orderRows ? '<div class="equip-order-edit">'+orderRows+'</div>' : '<p class="hint">還沒有順序。</p>') +
+        '<div class="cta-row" style="margin-top:10px">' +
+          '<button type="button" class="btn btn-primary" id="equipStart" '+(eq.order.length?'':'disabled')+'>開始／重新計時目前這位</button>' +
+          '<button type="button" class="btn btn-accent" id="equipNext" '+(eq.order.length?'':'disabled')+'>換下一位</button>' +
+        '</div>' +
+      '</div>' +
+    '</details>'
+  );
+}
+function handleEquipAction(action, extra){
+  var payload = Object.assign({ passcode: teacherAuthPasscode() }, extra || {});
+  return apiGet(action, payload).then(function(res){
+    if(!res.ok){ setToast('error','操作失敗（'+(res.error||'unknown')+'）'); render(); return; }
+    equipmentData = res.equipment;
+    render();
+  }).catch(function(e){ setToast('error','操作失敗：'+e.message); render(); });
+}
+function handleEquipSaveRoster(){
+  var names = document.getElementById('equip_roster').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  handleEquipAction('equipmentSetRoster', { names: names });
+}
+function handleEquipSaveAttendance(){
+  var att = {};
+  document.querySelectorAll('.equip-att').forEach(function(cb){ att[cb.getAttribute('data-name')] = cb.checked; });
+  handleEquipAction('equipmentSetAttendance', { attendance: att });
+}
+function handleEquipDrawLeader(){
+  handleEquipAction('equipmentDrawLeader');
+}
+function handleEquipSaveDuration(){
+  var minutes = parseInt(document.getElementById('equip_minutes').value,10) || 6;
+  handleEquipAction('equipmentSetDuration', { minutes: minutes });
+}
+function handleEquipBuildOrder(){
+  if(!confirm('確定要重新隨機排定順序嗎？目前的計時會歸零重新開始。')) return;
+  handleEquipAction('equipmentBuildOrder');
+}
+function handleEquipSetColor(index, color){
+  handleEquipAction('equipmentSetColor', { index: index, color: color });
+}
+function handleEquipStart(){
+  handleEquipAction('equipmentStart');
+}
+function handleEquipNext(){
+  handleEquipAction('equipmentAdvance');
+}
 
 function screenTeacher(){
   if(!teacherView){
@@ -695,7 +911,7 @@ function screenTeacher(){
     assignments.map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(teacherAssignmentFilter===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
 
   var configHtml =
-    '<details class="card config-card"><summary>教師設定</summary>' +
+    '<details class="card config-card"'+(teacherConfigOpen?' open':'')+'><summary id="teacherConfigSummary">教師設定</summary>' +
       '<form id="teacherConfigForm" class="form">' +
         '<label class="field"><span>作業清單（每行一個作業名稱，交作品／作品牆／評分的選單都會用這個）</span><textarea id="cfg_assignments">'+escapeHtml(assignments.join('\n'))+'</textarea></label>' +
         '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
@@ -726,7 +942,8 @@ function screenTeacher(){
       '<th>排名</th><th>圖片</th><th>編號</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
-    configHtml
+    configHtml +
+    equipmentAdminHtml()
   );
 }
 
@@ -735,12 +952,13 @@ function screenHtml(role){
   if(role==='submit') return screenSubmit();
   if(role==='review') return screenReview();
   if(role==='gallery') return screenGallery();
+  if(role==='equipment') return screenEquipment();
   if(role==='teacher') return screenTeacher();
   return screenHome();
 }
 function navHtml(role){
   function btn(r, label){ return '<button class="navbtn'+(role===r?' active':'')+'" data-nav="'+r+'">'+label+'</button>'; }
-  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+'</nav></header>';
+  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材輪值')+'</nav></header>';
 }
 
 function render(){
@@ -799,6 +1017,7 @@ function loadTeacherView(){
     }
     teacherView = res;
     render();
+    if(!equipmentData) loadEquipment(); else ensureEquipmentTicking();
   }).catch(function(e){ setToast('error','連線失敗：'+e.message); setRole('home'); render(); });
 }
 
@@ -821,8 +1040,10 @@ function goTo(role){
     } else render();
   }
   else if(role==='gallery') loadGallery();
+  else if(role==='equipment') loadEquipment();
   else if(role==='teacher') loadTeacherView();
   else render();
+  if(role!=='equipment' && role!=='teacher') stopEquipmentTicking();
 }
 
 function updateSubmitEnabled(form){
@@ -1072,19 +1293,24 @@ function attachHandlers(){
       render();
       return;
     }
+    if(e.target.closest('#teacherConfigSummary')){ teacherConfigOpen = !teacherConfigOpen; return; }
+    if(e.target.closest('#equipmentAdminSummary')){ equipmentAdminOpen = !equipmentAdminOpen; return; }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
     if(e.target.closest('#downloadBundle')){ handleDownloadBundle(); return; }
     var pickA = e.target.closest('[data-pick-assignment]');
     if(pickA){ reviewAssignment = pickA.getAttribute('data-pick-assignment'); loadReviewView(); return; }
     if(e.target.closest('#switchAssignment')){ reviewAssignment = null; reviewView = null; render(); return; }
+    if(e.target.closest('#galleryModeGrid')){ galleryViewMode = 'grid'; render(); return; }
+    if(e.target.closest('#galleryModeTable')){ galleryViewMode = 'table'; render(); return; }
     if(e.target.closest('#startSlideshow')){
-      slideshowIndex = 0; slideshowPlaying = true; startSlideTimer(); enterFullscreen(); render(); return;
+      // 預設不自動播放，要手動按暫停/播放按鈕才會開始輪播
+      slideshowIndex = 0; slideshowPlaying = false; enterFullscreen(); render(); return;
     }
     var card = e.target.closest('.gallery-card');
     if(card){
       slideshowIndex = parseInt(card.getAttribute('data-idx'),10) || 0;
-      slideshowPlaying = true; startSlideTimer(); enterFullscreen(); render(); return;
+      slideshowPlaying = false; enterFullscreen(); render(); return;
     }
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
     if(e.target.closest('#slidePrev')){ slideshowIndex = (slideshowIndex||0) - 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
@@ -1095,6 +1321,13 @@ function attachHandlers(){
       render();
       return;
     }
+    if(e.target.closest('#equipSaveRoster')){ handleEquipSaveRoster(); return; }
+    if(e.target.closest('#equipSaveAttendance')){ handleEquipSaveAttendance(); return; }
+    if(e.target.closest('#equipDrawLeader')){ handleEquipDrawLeader(); return; }
+    if(e.target.closest('#equipSaveDuration')){ handleEquipSaveDuration(); return; }
+    if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
+    if(e.target.closest('#equipStart')){ handleEquipStart(); return; }
+    if(e.target.closest('#equipNext')){ handleEquipNext(); return; }
   };
   root.onchange = function(e){
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
@@ -1103,6 +1336,10 @@ function attachHandlers(){
     if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; render(); return; }
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; render(); return; }
     if(e.target.id==='teacherAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
+    if(e.target.classList && e.target.classList.contains('equip-color-select')){
+      handleEquipSetColor(parseInt(e.target.getAttribute('data-index'),10), e.target.value);
+      return;
+    }
   };
   root.onsubmit = function(e){
     var form = e.target;
