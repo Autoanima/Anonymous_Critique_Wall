@@ -259,6 +259,10 @@ function escapeHtml(s){
 function escapeAttr(s){ return escapeHtml(s); }
 function normName(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
 function normSeat(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,''); }
+// 作業名稱要正規化過再比較，理由跟後端 Code.gs 裡的 normAssignment 一樣：
+// Google 試算表會把 "01" 這種看起來像數字的文字自動存成數字 1，兩邊格式對不起來
+// 的話，作業繳交狀況、作品牆篩選、教師總表篩選全部都會找不到對應的資料。
+function normAssignment(a){ var s = String(a==null?'':a).trim(); if(s!=='' && !isNaN(Number(s))) return String(Number(s)); return s; }
 function safeUrl(u){
   u = String(u||'').trim();
   if(/^https?:\/\//i.test(u)) return u;
@@ -445,9 +449,9 @@ function assignmentSelectHtml(id, includeAll){
 function checklistHtml(){
   if(mySubs === null) return '';
   var byAssignment = {};
-  mySubs.forEach(function(s){ var a = s.assignment||''; (byAssignment[a] = byAssignment[a] || []).push(s); });
+  mySubs.forEach(function(s){ var a = normAssignment(s.assignment); (byAssignment[a] = byAssignment[a] || []).push(s); });
   var rows = (assignmentsList.length ? assignmentsList : ['']).map(function(a){
-    var subsForA = byAssignment[a] || [];
+    var subsForA = byAssignment[normAssignment(a)] || [];
     if(!subsForA.length){
       return '<li class="mine-item"><span class="mine-thumb mine-thumb-empty"></span><span class="mine-info">'+escapeHtml(a||'（未分類）')+'：<span class="hint">尚未交</span></span></li>';
     }
@@ -560,7 +564,7 @@ function sortedGalleryRows(){
   var key = gallerySort;
   function val(r){ return key==='overall' ? r.overall : r.perCrit[key]; }
   var rows = galleryData.rows.slice();
-  if(galleryAssignment) rows = rows.filter(function(r){ return r.assignment===galleryAssignment; });
+  if(galleryAssignment) rows = rows.filter(function(r){ return normAssignment(r.assignment)===normAssignment(galleryAssignment); });
   rows.sort(function(a,b){
     var av = val(a), bv = val(b);
     av = av==null ? -1 : av; bv = bv==null ? -1 : bv;
@@ -984,7 +988,7 @@ function screenTeacher(){
   var criteria = cfg.criteria;
   var assignments = cfg.assignments || [];
   var allRows = teacherView.rows;
-  var rows = teacherAssignmentFilter ? allRows.filter(function(r){ return r.assignment===teacherAssignmentFilter; }) : allRows;
+  var rows = teacherAssignmentFilter ? allRows.filter(function(r){ return normAssignment(r.assignment)===normAssignment(teacherAssignmentFilter); }) : allRows;
   var head = criteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
   var tableRows = rows.map(function(r, i){
     var cells = criteria.map(function(c){
@@ -1320,7 +1324,7 @@ function csvCell(v){
 function handleExportCsv(){
   if(!teacherView) return;
   var criteria = teacherView.config.criteria;
-  var rows = teacherAssignmentFilter ? teacherView.rows.filter(function(r){ return r.assignment===teacherAssignmentFilter; }) : teacherView.rows;
+  var rows = teacherAssignmentFilter ? teacherView.rows.filter(function(r){ return normAssignment(r.assignment)===normAssignment(teacherAssignmentFilter); }) : teacherView.rows;
   var header = ['排名','編號','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
