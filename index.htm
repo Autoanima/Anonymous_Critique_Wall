@@ -103,6 +103,10 @@ button,input,textarea{font-family:inherit;}
 .lightbox-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
 .mine-info{flex:1;min-width:0;}
 .mine-del{border:1px solid var(--low);background:none;color:var(--low);border-radius:999px;padding:6px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;flex-shrink:0;}
+.mine-item-clickable{cursor:pointer;border-radius:8px;padding:6px;margin:-6px;}
+.mine-item-clickable:hover{background:var(--surface-2);}
+.mine-item-active{background:var(--accent-soft);}
+.mine-item-detail{padding-left:12px;}
 
 .progress{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;color:var(--ink-soft);margin:0;font-size:0.85rem;}
 .work-card{display:flex;flex-direction:column;gap:12px;}
@@ -234,6 +238,7 @@ var teacherView = null;
 var loading = false;
 var currentScores = {};
 var pendingImage = null; // { dataUrl, base64, mime }
+var submitTargetAssignment = null; // 點了「作業繳交狀況」裡哪一個項目，交作品的表單才會在底下展開
 var galleryData = null; // { rows, criteria, assignments }
 var gallerySort = 'overall';
 var galleryShowNames = false;
@@ -445,9 +450,12 @@ function screenHome(){
   );
 }
 
-function assignmentSelectHtml(id, includeAll){
+function assignmentSelectHtml(id, includeAll, selected){
   var opts = (includeAll ? '<option value="">全部作業</option>' : '') +
-    assignmentsList.map(function(a){ return '<option value="'+escapeAttr(a)+'">'+escapeHtml(a)+'</option>'; }).join('');
+    assignmentsList.map(function(a){
+      var isSelected = selected!=null && normAssignment(a)===normAssignment(selected);
+      return '<option value="'+escapeAttr(a)+'"'+(isSelected?' selected':'')+'>'+escapeHtml(a)+'</option>';
+    }).join('');
   return '<select id="'+id+'">'+opts+'</select>';
 }
 
@@ -457,17 +465,30 @@ function checklistHtml(){
   mySubs.forEach(function(s){ var a = normAssignment(s.assignment); (byAssignment[a] = byAssignment[a] || []).push(s); });
   var rows = (assignmentsList.length ? assignmentsList : ['']).map(function(a){
     var subsForA = byAssignment[normAssignment(a)] || [];
-    if(!subsForA.length){
-      return '<li class="mine-item"><span class="mine-thumb mine-thumb-empty"></span><span class="mine-info">'+escapeHtml(a||'（未分類）')+'：<span class="hint">尚未交</span></span></li>';
+    var isOpen = submitTargetAssignment!=null && normAssignment(submitTargetAssignment)===normAssignment(a);
+    var summaryThumb, summaryStatus;
+    if(subsForA.length){
+      var firstEmbed = toEmbed(subsForA[0].driveLink);
+      summaryThumb = firstEmbed && firstEmbed.kind==='image' ? '<img class="mine-thumb" src="'+escapeAttr(firstEmbed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+      summaryStatus = '<span class="code">已交 '+subsForA.length+' 件</span>（點這裡可以再交一件）';
+    } else {
+      summaryThumb = '<span class="mine-thumb mine-thumb-empty"></span>';
+      summaryStatus = '<span class="hint">尚未交（點這裡繳交）</span>';
     }
-    return subsForA.map(function(s){
+    // 縮圖、作業名稱、已交/未交狀態這一整排都可以點，點下去會在下面展開交作品的表單，
+    // 預設會帶入這個作業，但表單裡還是可以改選別的作業。
+    var summaryRow = '<li class="mine-item mine-item-clickable'+(isOpen?' mine-item-active':'')+'" data-open-assignment="'+escapeAttr(a)+'">' + summaryThumb +
+      '<span class="mine-info">'+escapeHtml(a||'（未分類）')+'：'+summaryStatus+'</span>' +
+    '</li>';
+    var detailRows = subsForA.map(function(s){
       var embed = toEmbed(s.driveLink);
       var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
-      return '<li class="mine-item">' + thumb +
-        '<span class="mine-info">'+escapeHtml(a||'（未分類）')+'：<span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'')+'</span>' +
+      return '<li class="mine-item mine-item-detail">' + thumb +
+        '<span class="mine-info"><span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'')+'</span>' +
         '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>' +
       '</li>';
     }).join('');
+    return summaryRow + detailRows;
   }).join('');
   return (
     '<div class="card"><h2 class="screen-title" style="font-size:1rem">作業繳交狀況</h2><ul class="mine-list">'+rows+'</ul>' +
@@ -486,27 +507,35 @@ function screenSubmit(){
     // apiGet 抓回來以後會自動重畫，不需要使用者手動重新整理。
     return '<h1 class="screen-title">交作品</h1><p class="hint">載入中...</p>';
   }
-  var previewHtml = pendingImage ? (
-    '<p class="hint" style="margin-top:8px">已選擇：<strong>'+escapeHtml(pendingImage.name||'圖片')+'</strong>（按鈕旁邊顯示「未選擇任何檔案」是正常的，不影響送出）</p>' +
-    '<div class="upload-preview"><img src="'+pendingImage.dataUrl+'" alt="預覽"></div>'
-  ) : '';
+  var formHtml = '';
+  if(submitTargetAssignment){
+    var previewHtml = pendingImage ? (
+      '<p class="hint" style="margin-top:8px">已選擇：<strong>'+escapeHtml(pendingImage.name||'圖片')+'</strong>（按鈕旁邊顯示「未選擇任何檔案」是正常的，不影響送出）</p>' +
+      '<div class="upload-preview"><img src="'+pendingImage.dataUrl+'" alt="預覽"></div>'
+    ) : '';
+    formHtml =
+      '<form id="submitForm" class="card form">' +
+        '<label class="field"><span>請選取要繳交的作業項目</span>'+assignmentSelectHtml('f_assignment', false, submitTargetAssignment)+'</label>' +
+        '<label class="field"><span>想要說的話（選填）</span><input id="f_title" placeholder="跟大家分享你的想法"></label>' +
+        '<div class="field"><span>上傳作品圖片</span>' +
+          '<div class="upload-box">' +
+            '<input type="file" accept="image/*" id="f_file">' +
+            '<p class="hint" style="margin-top:8px">會自動壓縮後上傳，不用另外處理權限。</p>' +
+            previewHtml +
+          '</div>' +
+        '</div>' +
+        '<div class="or-sep">或者</div>' +
+        '<label class="field"><span>貼上圖片網址（選填，已經有連結的話可以用這個）</span><input id="f_link" placeholder="https://..."></label>' +
+        '<div class="cta-row">' +
+          '<button type="button" class="btn btn-accent" id="cancelSubmitForm" '+(loading?'disabled':'')+'>取消</button>' +
+          '<button type="submit" class="btn btn-primary" '+(loading?'disabled':'')+'>'+(loading?'送出中...':'送出作品')+'</button>' +
+        '</div>' +
+      '</form>';
+  }
   return (
     '<h1 class="screen-title">交作品</h1>' +
     checklistHtml() +
-    '<form id="submitForm" class="card form">' +
-      '<label class="field"><span>這是哪一份作業？</span>'+assignmentSelectHtml('f_assignment', false)+'</label>' +
-      '<label class="field"><span>想要說的話（選填）</span><input id="f_title" placeholder="跟大家分享你的想法"></label>' +
-      '<div class="field"><span>上傳作品圖片</span>' +
-        '<div class="upload-box">' +
-          '<input type="file" accept="image/*" id="f_file">' +
-          '<p class="hint" style="margin-top:8px">會自動壓縮後上傳，不用另外處理權限。</p>' +
-          previewHtml +
-        '</div>' +
-      '</div>' +
-      '<div class="or-sep">或者</div>' +
-      '<label class="field"><span>貼上圖片網址（選填，已經有連結的話可以用這個）</span><input id="f_link" placeholder="https://..."></label>' +
-      '<button type="submit" class="btn btn-primary" '+(loading?'disabled':'')+'>'+(loading?'送出中...':'送出作品')+'</button>' +
-    '</form>'
+    formHtml
   );
 }
 
@@ -1255,6 +1284,7 @@ function handleSubmitWork(form){
     postFormNoRead('addSubmission', payload);
     pollForSubmission(payload.id, 0).then(function(sub){
       loading = false;
+      submitTargetAssignment = null;
       if(sub){
         setToast('success', '已送出！你的作品編號是 '+sub.workCode+'，同學評分時只會看到這個編號。');
       } else {
@@ -1270,6 +1300,7 @@ function handleSubmitWork(form){
     payload.driveLink = link;
     apiGet('addSubmission', payload).then(function(res){
       loading = false;
+      submitTargetAssignment = null;
       setToast('success', '已送出！你的作品編號是 '+res.workCode+'，同學評分時只會看到這個編號。');
       loadMySubs();
     }).catch(function(e){
@@ -1424,6 +1455,16 @@ function attachHandlers(){
     if(zoomThumb){ lightboxSrc = zoomThumb.getAttribute('data-full') || zoomThumb.src; render(); return; }
     var navBtn = e.target.closest('[data-nav]');
     if(navBtn){ goTo(navBtn.getAttribute('data-nav')); return; }
+    var openA = e.target.closest('[data-open-assignment]');
+    if(openA){
+      var targetA = openA.getAttribute('data-open-assignment');
+      var alreadyOpen = submitTargetAssignment!=null && normAssignment(submitTargetAssignment)===normAssignment(targetA);
+      submitTargetAssignment = alreadyOpen ? null : targetA;
+      pendingImage = null;
+      render();
+      return;
+    }
+    if(e.target.closest('#cancelSubmitForm')){ submitTargetAssignment = null; pendingImage = null; render(); return; }
     var dot = e.target.closest('.score-dot');
     if(dot){
       var key = dot.getAttribute('data-key');
