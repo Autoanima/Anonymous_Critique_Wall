@@ -39,7 +39,7 @@
   --shadow:0 1px 2px rgba(0,0,0,0.4);
 }
 *{box-sizing:border-box;}
-html{color-scheme:light dark;}
+html{color-scheme:light dark;scroll-behavior:smooth;}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased;}
 img{max-width:100%;}
 [hidden]{display:none!important;}
@@ -72,6 +72,7 @@ button,input,textarea{font-family:inherit;}
 .footer-link{color:var(--ink-soft);font-size:0.8rem;text-decoration:underline;cursor:pointer;background:none;border:none;padding:0;}
 
 .btn{border:none;border-radius:999px;padding:12px 18px;font-size:0.95rem;font-weight:700;cursor:pointer;flex:1;}
+a.btn{text-decoration:none;text-align:center;display:inline-block;}
 .btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
 .btn-primary{background:var(--accent);color:#fff;}
 .btn-accent{background:var(--accent-soft);color:var(--accent-strong);}
@@ -866,9 +867,23 @@ function isEditingFormField(){
   var tag = el.tagName;
   return tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT';
 }
-/** 從全班共用的時間軸，算出某一組現在輪到第幾個人、進度多少、還剩多少時間。 */
+/**
+ * 缺席的人不能真的「消失」在點名系統裡（回來還要能點名回來），但今天輪值時
+ * 就是要整個跳過他，讓輪值只在「今天有出席」的人之間轉，不要空等一個沒來的人。
+ * 這裡只過濾要拿去算「現在輪到誰」的順序，group.order 本身、器材輪值管理裡
+ * 顏色指定的編輯畫面都還是照全部組員顯示，缺席只是暫時不讓他排進今天的轉圈。
+ */
+function presentOrderFor(group){
+  var presentBySeat = {};
+  (group.members||[]).forEach(function(m){ presentBySeat[normSeat(m.seat)] = m.present !== false; });
+  return (group.order||[]).filter(function(p){
+    var v = presentBySeat[normSeat(p.seat)];
+    return v !== false; // 找不到組員資料時保守當作有出席，避免資料沒同步時整組憑空消失
+  });
+}
+/** 從全班共用的時間軸，算出某一組現在輪到第幾個人、進度多少、還剩多少時間（只算今天有出席的人）。 */
 function equipGroupState(eq, group){
-  var order = (group && group.order) || [];
+  var order = presentOrderFor(group || {});
   var n = order.length;
   if(!n || !eq.startedAt) return { active:false, order:order };
   var perMs = eq.perPersonMinutes*60000;
@@ -1012,6 +1027,45 @@ function parseGroupsText(text){
     return { name: name, members: members };
   });
 }
+/**
+ * 獨立、放在明顯位置的點名區塊，跟開始/暫停按鈕放在一起——這是老師每次上課
+ * 都要用的動作，不應該埋在下面「器材輪值管理」那些設定一次就好的東西裡面。
+ * 缺席的人一存檔，就會立刻從器材輪值的轉圈名單裡消失（見 presentOrderFor）；
+ * 遲到的人只要回來這裡重新勾選「有來」再存一次，就會馬上排回輪值順序，
+ * 不需要重新排定順序或做任何其他操作。
+ */
+function equipAttendanceHtml(eq){
+  if(!eq){
+    return '<div class="card"><p class="hint">載入中...</p></div>';
+  }
+  if(!eq.groups || !eq.groups.length){
+    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材輪值管理」新增分組名單。</p></div>';
+  }
+  var groupsHtml = eq.groups.map(function(g){
+    var attRows = g.members.map(function(m){
+      return '<label class="toggle-row"><input type="checkbox" class="equip-att" data-group="'+escapeAttr(g.name)+'" data-seat="'+escapeAttr(m.seat)+'" '+(m.present?'checked':'')+'> '+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+'</label>';
+    }).join('');
+    return (
+      '<div class="card" style="margin-top:10px">' +
+        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'</h3>' +
+        (attRows || '<p class="hint">這組還沒有組員。</p>') +
+      '</div>'
+    );
+  }).join('');
+  return (
+    '<div class="card">' +
+      '<h2 class="screen-title" style="font-size:1rem">今日點名</h2>' +
+      '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材輪值的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。</p>' +
+      groupsHtml +
+      '<button type="button" class="btn btn-primary" id="equipSaveAttendance" style="margin-top:10px;width:100%">儲存點名結果</button>' +
+    '</div>' +
+    '<div class="cta-row" style="margin-top:10px">' +
+      '<button type="button" class="btn btn-primary" id="equipStart">開始全班計時</button>' +
+      '<button type="button" class="btn btn-accent" id="equipPauseToggle">'+(eq.pausedAt?'▶ 繼續計時':'⏸ 暫停計時')+'</button>' +
+    '</div>' +
+    '<p class="hint">全班共用同一條時間軸，暫停／繼續會立刻影響所有組別；「輪到誰」是系統自動用時間算出來的，不需要手動按換人。</p>'
+  );
+}
 function equipmentAdminHtml(){
   if(!equipmentData){
     return '<div class="card config-card"><h2 class="screen-title" style="font-size:1rem">器材輪值管理</h2><p class="hint">載入中...</p></div>';
@@ -1021,9 +1075,6 @@ function equipmentAdminHtml(){
     return g.name + '\n' + g.members.map(function(m){ return m.seat+' '+m.name; }).join('\n');
   }).join('\n\n');
   var groupsHtml = eq.groups.map(function(g){
-    var attRows = g.members.map(function(m){
-      return '<label class="toggle-row"><input type="checkbox" class="equip-att" data-group="'+escapeAttr(g.name)+'" data-seat="'+escapeAttr(m.seat)+'" '+(m.present?'checked':'')+'> '+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+'</label>';
-    }).join('');
     var orderRows = (g.order||[]).map(function(p,i){
       var opts = RAINBOW_ORDER.map(function(c){ return '<option value="'+c+'"'+(p.color===c?' selected':'')+'>'+c+'</option>'; }).join('');
       return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(g.leader===p.seat?'（組長）':'')+'</span><select class="equip-color-select" data-group="'+escapeAttr(g.name)+'" data-index="'+i+'">'+opts+'</select></div>';
@@ -1031,8 +1082,7 @@ function equipmentAdminHtml(){
     return (
       '<div class="card" style="margin-top:10px">' +
         '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'</h3>' +
-        (attRows || '<p class="hint">這組還沒有組員。</p>') +
-        (attRows ? '<button type="button" class="btn btn-accent equip-draw-leader" data-group="'+escapeAttr(g.name)+'" style="margin-top:8px;width:100%">隨機抽組長（目前：'+escapeHtml(g.leader?(g.leader+' 號'):'尚未抽')+'）</button>' : '') +
+        (g.members.length ? '<button type="button" class="btn btn-accent equip-draw-leader" data-group="'+escapeAttr(g.name)+'" style="width:100%">隨機抽組長（目前：'+escapeHtml(g.leader?(g.leader+' 號'):'尚未抽')+'）</button>' : '<p class="hint">這組還沒有組員。</p>') +
         (orderRows ? '<div class="equip-order-edit">'+orderRows+'</div>' : '<p class="hint" style="margin-top:8px">還沒有排順序。</p>') +
       '</div>'
     );
@@ -1044,19 +1094,12 @@ function equipmentAdminHtml(){
         '<label class="field"><span>分組名單（每組一段：第一行是組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="equip_groups" style="min-height:140px">'+escapeHtml(groupsText)+'</textarea></label>' +
         '<button type="button" class="btn btn-primary" id="equipSaveGroups">儲存分組名單</button>' +
         '<hr class="divider">' +
-        '<p class="hint">點名（勾選今天有出席的人，儲存後組員就會在自己的畫面上看到這一組的名單）：</p>' +
         (groupsHtml || '<p class="hint">請先儲存分組名單。</p>') +
-        (eq.groups.length ? '<button type="button" class="btn btn-primary" id="equipSaveAttendance" style="margin-top:10px;width:100%">儲存點名結果</button>' : '') +
         '<hr class="divider">' +
         '<label class="field"><span>每人使用時間（分鐘，全班共用同一個設定）</span><input type="number" min="1" max="60" id="equip_minutes" value="'+eq.perPersonMinutes+'"></label>' +
         '<button type="button" class="btn btn-primary" id="equipSaveDuration">儲存時間</button>' +
         '<hr class="divider">' +
         '<button type="button" class="btn btn-accent" id="equipBuildOrder" style="width:100%">重新排定所有組別的順序（隨機，會把計時歸零）</button>' +
-        '<div class="cta-row" style="margin-top:10px">' +
-          '<button type="button" class="btn btn-primary" id="equipStart">開始全班計時</button>' +
-          '<button type="button" class="btn btn-accent" id="equipPauseToggle">'+(eq.pausedAt?'▶ 繼續計時':'⏸ 暫停計時')+'</button>' +
-        '</div>' +
-        '<p class="hint">全班共用同一條時間軸，暫停／繼續會立刻影響所有組別；「輪到誰」是系統自動用時間算出來的，不需要手動按換人。</p>' +
       '</div>' +
     '</div>'
   );
@@ -1181,7 +1224,6 @@ function screenTeacher(){
 
   var configHtml =
     '<div class="card config-card">' +
-      '<h2 class="screen-title" style="font-size:1rem">教師設定</h2>' +
       '<form id="teacherConfigForm" class="form">' +
         '<label class="field"><span>作業清單（每行一個作業名稱，交作品／作品牆／評分的選單都會用這個）</span><textarea id="cfg_assignments">'+escapeHtml(assignments.join('\n'))+'</textarea></label>' +
         '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
@@ -1207,16 +1249,27 @@ function screenTeacher(){
         '<label class="field"><span>身分清單（格式跟器材分組一樣：第一行組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="quickIdentityGroups" style="min-height:120px">'+escapeHtml(getQuickIdentityText())+'</textarea></label>' +
         '<button type="button" class="btn btn-accent" id="saveQuickIdentity">儲存（只存在這台裝置）</button>' +
       '</div>' +
-      '<hr class="divider">' +
-      '<div class="card" style="border-color:var(--low)">' +
-        '<h3 class="screen-title" style="font-size:0.95rem;color:var(--low)">危險區：一鍵還原資料</h3>' +
-        '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材輪值目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
-        '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
-        '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
-      '</div>' +
     '</div>';
+
+  var dangerZoneHtml =
+    '<div class="card" style="border-color:var(--low)">' +
+      '<h2 class="screen-title" style="font-size:1rem;color:var(--low)" id="section-danger">危險區：一鍵還原資料</h2>' +
+      '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材輪值目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
+      '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
+      '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
+    '</div>';
+
+  var autoRefreshOn = localStorage.getItem('crit.teacherAutoRefresh')==='1';
+
   return (
     '<h1 class="screen-title">教師總表</h1>' +
+    '<div class="cta-row" style="flex-wrap:wrap">' +
+      '<a href="#section-grades" class="btn btn-accent">總表</a>' +
+      '<a href="#section-equipment" class="btn btn-accent">器材輪值</a>' +
+      '<a href="#section-settings" class="btn btn-accent">教師設定</a>' +
+      '<a href="#section-danger" class="btn btn-accent">危險區</a>' +
+    '</div>' +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">總表</h2>' +
     '<div class="stat-row">' +
       statTile(teacherView.submissionCount, '件作品') +
       statTile(teacherView.reviewCount, '筆評分') +
@@ -1228,14 +1281,19 @@ function screenTeacher(){
       '<button class="btn btn-accent" id="toggleNames">'+(namesHidden?'顯示姓名':'隱藏姓名')+'</button>' +
       '<button class="btn btn-accent" id="exportCsv">匯出 CSV</button>' +
     '</div>' +
+    '<label class="toggle-row"><input type="checkbox" id="teacherAutoRefreshToggle" '+(autoRefreshOn?'checked':'')+'> 自動重新整理總表（每 20 秒，正在打字時不會被蓋掉）</label>' +
     '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
       '<th>排名</th><th>圖片</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
-    '<h2 class="screen-title" style="font-size:1.1rem">器材輪值總覽（全部組別）</h2>' +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-equipment">器材輪值</h2>' +
+    equipAttendanceHtml(equipmentData) +
+    '<h3 class="screen-title" style="font-size:1rem;margin-top:10px">各組即時狀態</h3>' +
     '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-settings">教師設定</h2>' +
     configHtml +
-    equipmentAdminHtml()
+    equipmentAdminHtml() +
+    dangerZoneHtml
   );
 }
 
@@ -1321,7 +1379,32 @@ function loadTeacherView(){
     teacherView = res;
     render();
     if(!equipmentData) loadEquipment(); else ensureEquipmentTicking();
+    if(localStorage.getItem('crit.teacherAutoRefresh')==='1') setTeacherAutoRefresh(true);
   }).catch(function(e){ setToast('error','連線失敗：'+e.message); setRole('home'); render(); });
+}
+var teacherAutoRefreshTimer = null;
+/**
+ * 自動重新整理故意不走 loadTeacherView() 那套「先清空、顯示載入中」的做法，
+ * 那樣每 20 秒背景重畫一次會整頁閃一下、很煩；改成資料抓回來以前畫面完全不動，
+ * 抓到才悄悄換新資料，而且如果老師正在教師設定裡打字，這次就先跳過、下一輪再試，
+ * 不會把打到一半的字蓋掉。
+ */
+function refreshTeacherViewSilently(){
+  if(!apiUrl || !teacherAuthPasscode() || getRole()!=='teacher' || isEditingFormField()) return;
+  apiGet('teacherFetch', { passcode: teacherAuthPasscode() }).then(function(res){
+    if(!res.ok || isEditingFormField()) return;
+    teacherView = res;
+    render();
+  }).catch(function(){});
+}
+function setTeacherAutoRefresh(on){
+  localStorage.setItem('crit.teacherAutoRefresh', on ? '1' : '0');
+  if(on && !teacherAutoRefreshTimer){
+    teacherAutoRefreshTimer = setInterval(refreshTeacherViewSilently, 20000);
+  } else if(!on && teacherAutoRefreshTimer){
+    clearInterval(teacherAutoRefreshTimer);
+    teacherAutoRefreshTimer = null;
+  }
 }
 
 function loadGallery(){
@@ -1333,6 +1416,7 @@ function loadGallery(){
 
 function goTo(role){
   if(role !== 'gallery' && slideshowIndex != null){ stopSlideTimer(); slideshowIndex = null; }
+  if(role !== 'teacher' && teacherAutoRefreshTimer){ clearInterval(teacherAutoRefreshTimer); teacherAutoRefreshTimer = null; }
   setRole(role);
   if(role==='home') loadHome();
   else if(role==='submit') loadMySubs();
@@ -1717,6 +1801,7 @@ function attachHandlers(){
     if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; galleryNamesTouched = true; render(); return; }
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; galleryScoresTouched = true; render(); return; }
     if(e.target.id==='teacherAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
+    if(e.target.id==='teacherAutoRefreshToggle'){ setTeacherAutoRefresh(e.target.checked); return; }
     if(e.target.classList && e.target.classList.contains('equip-color-select')){
       handleEquipSetColorFor(e.target.getAttribute('data-group'), parseInt(e.target.getAttribute('data-index'),10), e.target.value);
       return;
