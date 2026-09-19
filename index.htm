@@ -480,6 +480,12 @@ function screenSubmit(){
   if(!hasIdentity()){
     return '<h1 class="screen-title">交作品</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能交作品。</p>';
   }
+  if(!assignmentsList.length){
+    // 作業清單是從伺服器另外抓的，剛連上或剛設定完身分的那一瞬間可能還沒抓回來，
+    // 這裡先顯示「載入中」，不要讓畫面看起來像「根本沒有作業可以交」；
+    // apiGet 抓回來以後會自動重畫，不需要使用者手動重新整理。
+    return '<h1 class="screen-title">交作品</h1><p class="hint">載入中...</p>';
+  }
   var previewHtml = pendingImage ? (
     '<p class="hint" style="margin-top:8px">已選擇：<strong>'+escapeHtml(pendingImage.name||'圖片')+'</strong>（按鈕旁邊顯示「未選擇任何檔案」是正常的，不影響送出）</p>' +
     '<div class="upload-preview"><img src="'+pendingImage.dataUrl+'" alt="預覽"></div>'
