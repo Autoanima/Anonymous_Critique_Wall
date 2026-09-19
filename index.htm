@@ -530,7 +530,7 @@ function checklistHtml(){
       var embed = toEmbed(s.driveLink);
       var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
       return '<li class="mine-item mine-item-detail">' + thumb +
-        '<span class="mine-info"><span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'')+'</span>' +
+        '<span class="mine-info">'+escapeHtml(s.title||'')+'</span>' +
         '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>' +
       '</li>';
     }).join('');
@@ -634,7 +634,6 @@ function screenReview(){
     '<h1 class="screen-title">我要評分</h1>' + switchBtn +
     '<p class="progress">進度：'+reviewView.myDone+' / '+reviewView.required+'</p>' +
     '<div class="card work-card">' +
-      '<div class="work-code">'+escapeHtml(work.workCode)+'</div>' +
       previewFrameHtml(embed) +
       (work.title ? '<p class="work-title">「'+escapeHtml(work.title)+'」</p>' : '') +
       '<form id="scoreForm" class="score-form" data-work="'+escapeAttr(work.id)+'">' +
@@ -659,12 +658,10 @@ function sortedGalleryRows(){
   return rows;
 }
 function galleryMetaHtml(r, scoreVal){
-  var nameBit = (galleryShowNames && r.studentName) ? ' <span class="gallery-name">'+escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName)+'</span>' : '';
-  return (
-    '<span class="code">'+escapeHtml(r.workCode)+'</span>' +
-    nameBit +
-    (galleryShowScores ? ' <span class="gallery-score">'+(scoreVal==null?'—':scoreVal.toFixed(2))+'</span>' : '')
-  );
+  var bits = [];
+  if(galleryShowNames && r.studentName) bits.push('<span class="gallery-name">'+escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName)+'</span>');
+  if(galleryShowScores) bits.push('<span class="gallery-score">'+(scoreVal==null?'—':scoreVal.toFixed(2))+'</span>');
+  return bits.join(' ');
 }
 function galleryImageHtml(r, tall){
   var embed = toEmbed(r.driveLink);
@@ -741,7 +738,6 @@ function galleryTableHtml(rows){
     return '<tr>' +
       '<td class="num">'+(i+1)+'</td>' +
       '<td>'+thumb+'</td>' +
-      '<td class="mono">'+escapeHtml(r.workCode)+'</td>' +
       '<td>'+nameCell+'</td>' +
       cells +
       '<td class="num strong">'+(galleryShowScores ? (r.overall==null?'—':r.overall.toFixed(2)) : '—')+'</td>' +
@@ -749,7 +745,7 @@ function galleryTableHtml(rows){
     '</tr>';
   }).join('');
   return '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-    '<th>排名</th><th>圖片</th><th>編號</th><th>姓名</th>' + head + '<th>總平均</th><th>份數</th>' +
+    '<th>排名</th><th>圖片</th><th>姓名</th>' + head + '<th>總平均</th><th>份數</th>' +
   '</tr></thead><tbody>'+body+'</tbody></table></div>';
 }
 function slideshowHtml(){
@@ -1106,7 +1102,6 @@ function screenTeacher(){
     return '<tr>' +
       '<td class="num">'+(i+1)+'</td>' +
       '<td>'+thumb+'</td>' +
-      '<td class="mono">'+escapeHtml(r.workCode)+'</td>' +
       '<td class="num">'+(namesHidden ? '●' : escapeHtml(r.studentSeat))+'</td>' +
       '<td>'+(namesHidden ? '●●●' : escapeHtml(r.studentName))+'</td>' +
       '<td>'+escapeHtml(r.assignment||'—')+'</td>' +
@@ -1125,7 +1120,7 @@ function screenTeacher(){
       return '<tr>' +
         '<td class="num">'+(namesHidden ? '●' : escapeHtml(rv.seat))+'</td>' +
         '<td>'+(namesHidden ? '●●●' : escapeHtml(rv.name))+'</td>' +
-        '<td>'+(rv.submitted ? '<span class="mono">'+escapeHtml(rv.workCodes)+'</span>' : '<span class="hint">未交作品</span>')+'</td>' +
+        '<td>'+(rv.submitted ? '<span style="color:var(--good)">已交</span>' : '<span class="hint">未交作品</span>')+'</td>' +
         '<td class="num">'+rv.reviewCount+'</td>' +
         '<td>'+(rv.met
           ? '<span style="color:var(--good);font-weight:700">已達標</span>'
@@ -1196,7 +1191,7 @@ function screenTeacher(){
       '<button class="btn btn-accent" id="exportCsv">匯出 CSV</button>' +
     '</div>' +
     '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-      '<th>排名</th><th>圖片</th><th>編號</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
+      '<th>排名</th><th>圖片</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
     configHtml +
@@ -1362,9 +1357,9 @@ function handleSubmitWork(form){
       loading = false;
       submitTargetAssignment = null;
       if(sub){
-        setToast('success', '已送出！你的作品編號是 '+sub.workCode+'，同學評分時只會看到這個編號。');
+        setToast('success', '已送出！同學評分時不會看到你的名字。');
       } else {
-        setToast('success', '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到編號。');
+        setToast('success', '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到。');
       }
       loadMySubs();
     }).catch(function(e){
@@ -1377,7 +1372,7 @@ function handleSubmitWork(form){
     apiGet('addSubmission', payload).then(function(res){
       loading = false;
       submitTargetAssignment = null;
-      setToast('success', '已送出！你的作品編號是 '+res.workCode+'，同學評分時只會看到這個編號。');
+      setToast('success', '已送出！同學評分時不會看到你的名字。');
       loadMySubs();
     }).catch(function(e){
       loading = false;
@@ -1487,10 +1482,10 @@ function handleExportCsv(){
   if(!teacherView) return;
   var criteria = teacherView.config.criteria;
   var rows = teacherAssignmentFilter ? teacherView.rows.filter(function(r){ return normAssignment(r.assignment)===normAssignment(teacherAssignmentFilter); }) : teacherView.rows;
-  var header = ['排名','編號','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
+  var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
-    var cells = [i+1, r.workCode, r.studentSeat, r.studentName, r.assignment||'', r.title||''].concat(
+    var cells = [i+1, r.studentSeat, r.studentName, r.assignment||'', r.title||''].concat(
       criteria.map(function(c){ var v=r.perCrit[c.key]; return v==null?'':v.toFixed(2); })
     ).concat([r.overall==null?'':r.overall.toFixed(2), r.count]);
     lines.push(cells.map(csvCell).join(','));
