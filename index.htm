@@ -262,8 +262,6 @@ var equipmentData = null; // { roster, leader, order, perPersonMinutes, currentI
 var equipmentTickTimer = null;
 var equipmentPollTimer = null;
 var RAINBOW_ORDER = ['紅','橙','黃','綠','藍','靛','紫'];
-var teacherConfigOpen = false;
-var equipmentAdminOpen = false;
 var RAINBOW_COLORS = {'紅':'#E4483B','橙':'#E08A3D','黃':'#D9B23C','綠':'#3F9D5C','藍':'#3B6FB0','靛':'#4B4FA8','紫':'#8A4FAE'};
 
 function escapeHtml(s){
@@ -845,6 +843,10 @@ function patchEquipmentDisplay(){
     var main = document.getElementById('mainSlot');
     if(main) main.innerHTML = screenHtml('equipment');
   }
+  // 教師頁面的「器材輪值總覽」是純顯示、裡面沒有任何輸入框，所以不用擔心
+  // 打斷老師正在填的教師設定／器材管理表單，可以放心每次都直接整段換新。
+  var teacherSlot = document.getElementById('teacherEquipOverviewSlot');
+  if(teacherSlot) teacherSlot.innerHTML = teacherEquipmentOverviewHtml(equipmentData);
   var appEl = document.getElementById('app');
   var existingFloat = document.getElementById('floatPauseBtn');
   var wantFloat = floatingPauseHtml();
@@ -963,6 +965,40 @@ function screenEquipment(){
     timelineSection
   );
 }
+/**
+ * 教師版的器材輪值總覽：學生進來只看得到自己那一組，但老師要能一次看到全部組別
+ * 現在輪到誰、進度到哪裡，不用一組一組去對照座號才能知道。
+ */
+function teacherEquipmentOverviewHtml(eq){
+  if(!eq) return '<div class="card"><p class="hint">載入中...</p></div>';
+  if(!eq.groups || !eq.groups.length){
+    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材輪值管理」新增分組名單。</p></div>';
+  }
+  return eq.groups.map(function(g){
+    var state = equipGroupState(eq, g);
+    var order = state.order;
+    var current = state.active ? order[state.currentIndex] : null;
+    var next = (state.active && order.length) ? order[(state.currentIndex+1)%order.length] : null;
+    var body;
+    if(!order.length){
+      body = '<p class="hint">還沒排定順序。</p>';
+    } else if(!state.active){
+      body = '<p class="hint">還沒開始計時。</p>' + timelineHtml(state, true);
+    } else {
+      body =
+        (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停</p>' : '') +
+        '<p class="hint">目前使用：<strong>'+(current?(escapeHtml(current.seat)+'號 '+escapeHtml(current.name)):'—')+'</strong>　剩 '+fmtTime(state.remainingMs)+'</p>' +
+        '<p class="hint">下一位：'+(next?(escapeHtml(next.seat)+'號 '+escapeHtml(next.name)):'—')+'</p>' +
+        timelineHtml(state, true);
+    }
+    return (
+      '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+RAINBOW_COLORS[current.color]:'')+'">' +
+        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml(g.leader?(g.leader+' 號'):'（尚未抽）')+'</h3>' +
+        body +
+      '</div>'
+    );
+  }).join('');
+}
 function parseGroupsText(text){
   var blocks = text.split(/\n\s*\n/).map(function(b){ return b.trim(); }).filter(Boolean);
   return blocks.map(function(block){
@@ -978,7 +1014,7 @@ function parseGroupsText(text){
 }
 function equipmentAdminHtml(){
   if(!equipmentData){
-    return '<details class="card config-card"'+(equipmentAdminOpen?' open':'')+'><summary id="equipmentAdminSummary">器材輪值管理</summary><p class="hint">載入中...</p></details>';
+    return '<div class="card config-card"><h2 class="screen-title" style="font-size:1rem">器材輪值管理</h2><p class="hint">載入中...</p></div>';
   }
   var eq = equipmentData;
   var groupsText = eq.groups.map(function(g){
@@ -1002,7 +1038,8 @@ function equipmentAdminHtml(){
     );
   }).join('');
   return (
-    '<details class="card config-card"'+(equipmentAdminOpen?' open':'')+'><summary id="equipmentAdminSummary">器材輪值管理</summary>' +
+    '<div class="card config-card">' +
+      '<h2 class="screen-title" style="font-size:1rem">器材輪值管理</h2>' +
       '<div class="form">' +
         '<label class="field"><span>分組名單（每組一段：第一行是組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="equip_groups" style="min-height:140px">'+escapeHtml(groupsText)+'</textarea></label>' +
         '<button type="button" class="btn btn-primary" id="equipSaveGroups">儲存分組名單</button>' +
@@ -1021,7 +1058,7 @@ function equipmentAdminHtml(){
         '</div>' +
         '<p class="hint">全班共用同一條時間軸，暫停／繼續會立刻影響所有組別；「輪到誰」是系統自動用時間算出來的，不需要手動按換人。</p>' +
       '</div>' +
-    '</details>'
+    '</div>'
   );
 }
 function floatingPauseHtml(){
@@ -1143,7 +1180,8 @@ function screenTeacher(){
     assignments.map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(teacherAssignmentFilter===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
 
   var configHtml =
-    '<details class="card config-card"'+(teacherConfigOpen?' open':'')+'><summary id="teacherConfigSummary">教師設定</summary>' +
+    '<div class="card config-card">' +
+      '<h2 class="screen-title" style="font-size:1rem">教師設定</h2>' +
       '<form id="teacherConfigForm" class="form">' +
         '<label class="field"><span>作業清單（每行一個作業名稱，交作品／作品牆／評分的選單都會用這個）</span><textarea id="cfg_assignments">'+escapeHtml(assignments.join('\n'))+'</textarea></label>' +
         '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
@@ -1176,7 +1214,7 @@ function screenTeacher(){
         '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
         '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
       '</div>' +
-    '</details>';
+    '</div>';
   return (
     '<h1 class="screen-title">教師總表</h1>' +
     '<div class="stat-row">' +
@@ -1194,6 +1232,8 @@ function screenTeacher(){
       '<th>排名</th><th>圖片</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
+    '<h2 class="screen-title" style="font-size:1.1rem">器材輪值總覽（全部組別）</h2>' +
+    '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
     configHtml +
     equipmentAdminHtml()
   );
@@ -1210,6 +1250,13 @@ function screenHtml(role){
 }
 function navHtml(role){
   function btn(r, label){ return '<button class="navbtn'+(role===r?' active':'')+'" data-nav="'+r+'">'+label+'</button>'; }
+  // 老師進到「教師專區」以後，整個介面就專門給老師用：拿掉交作品／我要評分這些
+  // 學生才會用到的分頁，也不顯示目前測試身分的角色徽章跟器材輪值迷你進度條
+  // （教師頁面裡本來就有全部組別的完整器材輪值總覽，不需要再顯示單一組別的迷你版）。
+  // 老師想切回學生視角測試，就按「離開教師模式」回首頁，那邊有「快速切換身分」可以用。
+  if(role==='teacher'){
+    return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span></div></div></header>';
+  }
   return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材輪值')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
 }
 
@@ -1221,7 +1268,9 @@ function render(){
       navHtml(role) +
       (toast ? '<div class="toast toast-'+escapeAttr(toast.kind)+'">'+escapeHtml(toast.text)+'</div>' : '') +
       '<main class="content" id="mainSlot">' + screenHtml(role) + '</main>' +
-      '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button></footer>' +
+      (role==='teacher'
+        ? '<footer class="footer"><button class="footer-link" data-nav="home">離開教師模式</button></footer>'
+        : '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button></footer>') +
     '</div>' +
     slideshowHtml() +
     floatingPauseHtml() +
@@ -1616,7 +1665,6 @@ function attachHandlers(){
       render();
       return;
     }
-    if(e.target.closest('#teacherConfigSummary')){ teacherConfigOpen = !teacherConfigOpen; return; }
     if(e.target.closest('#saveQuickIdentity')){
       var enabled = document.getElementById('quickIdentityEnabled').checked;
       var groupsText = document.getElementById('quickIdentityGroups').value;
@@ -1627,7 +1675,6 @@ function attachHandlers(){
       return;
     }
     if(e.target.closest('#resetAllDataBtn')){ handleResetAllData(); return; }
-    if(e.target.closest('#equipmentAdminSummary')){ equipmentAdminOpen = !equipmentAdminOpen; return; }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
     if(e.target.closest('#downloadBundle')){ handleDownloadBundle(); return; }
