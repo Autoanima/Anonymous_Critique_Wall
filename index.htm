@@ -1089,24 +1089,25 @@ function equipAttendanceHtml(eq){
     '</div>'
   );
 }
-/** 教師模式最上面那條固定不動的列，用一行字快速看每組現在輪到誰，不用滑到「器材輪值總覽」才看得到。 */
+/**
+ * 教師模式最上面那條固定不動的列，放在標題右邊、盡量窄。所有組別共用同一條
+ * 時間軸，同一秒算出來的「剩多少時間」本來就完全一樣，不需要每組分開顯示一次，
+ * 隨便挑一組有排順序的來算就好；詳細「現在輪到誰」還是要看「器材輪值總覽」。
+ */
 function teacherEquipMiniHtml(eq){
   if(!eq || !eq.groups || !eq.groups.length) return '';
-  return '<div class="equip-mini">' + eq.groups.map(function(g){
-    var state = equipGroupState(eq, g);
-    var current = state.active ? state.order[state.currentIndex] : null;
-    var label = state.active
-      ? (escapeHtml(stripLeadingZero(current.seat))+'號 '+escapeHtml(current.name)+'　剩 '+fmtTime(state.remainingMs)+(state.paused?'（已暫停）':''))
-      : (state.order.length ? '尚未開始計時' : '還沒排順序');
-    return '<div class="equip-mini-label">'+escapeHtml(g.name)+'：'+label+'</div>';
-  }).join('') + '</div>';
+  var g = eq.groups.filter(function(gr){ return (gr.order||[]).length; })[0];
+  if(!g) return '';
+  var state = equipGroupState(eq, g);
+  if(!state.active) return '<span class="hint" style="font-size:0.75rem">尚未開始計時</span>';
+  return '<span class="hint" style="font-size:0.8rem;font-family:\'JetBrains Mono\',monospace;white-space:nowrap">剩 '+fmtTime(state.remainingMs)+(state.paused?'（暫停）':'')+'</span>';
 }
-/** 開始/暫停全班計時的按鈕——放在教師模式最上面那條固定不動的列裡，隨時都點得到，不用滑到「今日點名」才找得到。 */
+/** 開始/暫停全班計時的按鈕，跟下面的跳轉連結收在同一橫排裡，字盡量簡短。 */
 function equipStartPauseButtonsHtml(eq){
   var paused = !!(eq && eq.pausedAt);
   return (
-    '<button type="button" class="navbtn" id="equipStart">開始全班計時</button>' +
-    '<button type="button" class="navbtn" id="equipPauseToggle">'+(paused?'▶ 繼續計時':'⏸ 暫停計時')+'</button>'
+    '<button type="button" class="navbtn" id="equipStart">開始</button>' +
+    '<button type="button" class="navbtn" id="equipPauseToggle">'+(paused?'▶ 繼續':'⏸ 暫停')+'</button>'
   );
 }
 function equipmentAdminHtml(){
@@ -1353,14 +1354,17 @@ function navHtml(role){
   if(role==='teacher'){
     // 這排跳轉連結放在 <header> 裡面、跟品牌列一起，是為了讓它跟頂端列一樣
     // 是 sticky 的——往下滑頁面時會一直貼在最上面，不用滑回頂端才能點。
-    return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span></div></div>' +
-      '<div id="teacherEquipMiniSlot">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
+    return '<header class="topbar">' +
+      '<div class="topbar-top">' +
+        '<div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span></div>' +
+        '<div id="teacherEquipMiniSlot">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
+      '</div>' +
       '<nav class="tabs" style="flex-wrap:wrap">' +
         '<a href="#section-equipment" class="navbtn">器材輪值</a>' +
         '<a href="#section-attendance" class="navbtn">點名</a>' +
         '<a href="#section-settings" class="navbtn">其他設定</a>' +
+        '<span id="teacherEquipControlsSlot" style="display:contents">' + equipStartPauseButtonsHtml(equipmentData) + '</span>' +
       '</nav>' +
-      '<nav class="tabs" id="teacherEquipControlsSlot">' + equipStartPauseButtonsHtml(equipmentData) + '</nav>' +
     '</header>';
   }
   return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材輪值')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
