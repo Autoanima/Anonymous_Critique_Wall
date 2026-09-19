@@ -168,19 +168,34 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .gallery-assignment-chip{color:#fff;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap;}
 @media (min-width:600px){ .gallery-grid{column-count:3;} }
 
-.slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.96);z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:10px;--slide-scale:1;}
-.slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
-.slide-body{width:98vw;height:78vh;display:flex;gap:16px;align-items:stretch;min-height:0;}
+.slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.96);z-index:50;--slide-scale:1;}
+.slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;z-index:3;}
+.slide-body{position:absolute;top:10px;left:10px;right:10px;bottom:10px;display:flex;gap:16px;align-items:stretch;min-height:0;}
 .slide-stage{flex:3;min-width:0;display:flex;align-items:center;justify-content:center;}
 .slide-stage img{width:100%;height:100%;border-radius:6px;object-fit:contain;}
 .slide-stage iframe{width:100%;height:100%;border:0;border-radius:6px;background:#fff;}
 .slide-radar{flex:1;min-width:220px;max-width:380px;display:flex;align-items:center;justify-content:center;}
-@media (max-width:800px){ .slide-body{flex-direction:column;height:auto;} .slide-stage{height:48vh;width:100%;} .slide-radar{width:100%;max-width:none;height:32vh;min-width:0;} }
-.slide-meta{color:#fff;display:flex;gap:calc(10px * var(--slide-scale));align-items:center;font-size:calc(1.8rem * var(--slide-scale));flex-wrap:wrap;justify-content:center;}
+/* 所有資訊、控制項都用絕對定位疊在畫面上，不佔版面空間，讓作品圖片盡量放到最大。 */
+.slide-meta-overlay{position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;align-items:flex-end;gap:calc(6px * var(--slide-scale));z-index:2;pointer-events:none;}
+.slide-meta{color:#fff;display:flex;gap:calc(8px * var(--slide-scale));align-items:center;font-size:calc(1.8rem * var(--slide-scale));flex-wrap:wrap;justify-content:flex-end;}
 .slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:0.15em 0.6em;border-radius:0.4em;font-weight:700;}
 .slide-meta .gallery-score{font-size:1em;padding:0.15em 0.6em;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:calc(1.3rem * var(--slide-scale));}
-.slide-controls{display:flex;gap:10px;}
+.slide-font-controls{position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:2;}
+.slide-font-controls .btn{flex:none;width:48px;padding:10px 0;}
+.slide-controls-bottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;z-index:2;}
+/* 窄螢幕（手機）用固定字級疊層位置，避免投影用的放大字級在小螢幕上互相重疊。 */
+@media (max-width:800px){
+  .slide-body{flex-direction:column;}
+  .slide-stage{flex:1.3;}
+  .slide-radar{flex:1;min-width:0;max-height:34vh;}
+  .slide-font-controls{left:8px;top:8px;bottom:auto;transform:none;flex-direction:row;}
+  .slide-font-controls .btn{width:38px;padding:6px 0;}
+  .slide-meta-overlay{right:8px;bottom:64px;}
+  .slide-meta{font-size:1.05rem;gap:6px;}
+  .slide-pos{font-size:0.8rem;}
+  .slide-controls-bottom{bottom:8px;}
+}
 
 .equip-current{text-align:center;}
 .equip-turn-label{margin:6px 0 2px;color:var(--ink-soft);font-size:0.85rem;}
@@ -509,11 +524,6 @@ function screenHome(){
         statTile(homeStats.reviewCount, '筆評分') +
         statTile(homeStats.reviewsPerStudent, '每人需評幾件') +
       '</div>' +
-      '<div class="cta-row">' +
-        '<button class="btn btn-primary" data-nav="submit">交作品</button>' +
-        '<button class="btn btn-accent" data-nav="review">我要評分</button>' +
-      '</div>' +
-      '<button class="btn btn-accent" data-nav="gallery" style="width:100%;margin-bottom:4px">瀏覽作品牆</button>' +
       '<ol class="steps">' +
         '<li>先設定座號和姓名，系統會記住，之後不用重填。</li>' +
         '<li>交出你的作品，系統會給你一個匿名編號。</li>' +
@@ -695,7 +705,13 @@ function sortedGalleryRows(){
 }
 /** 依作業在清單裡的位置，從器材輪值那組 8 色色盤挑一個固定顏色，讓同一份作業在整個作品牆裡顏色都一樣。 */
 function assignmentColorFor(assignments, a){
-  var idx = (assignments||[]).indexOf(a);
+  // 一定要用 normAssignment 比對，不能直接 indexOf——作業名稱如果是「01」這種
+  // 看起來像數字的文字，試算表會把它存成數字 1，直接比對永遠對不起來，
+  // 結果每一列都會落到「找不到、預設用第一色」，變成畫面上全部作品都同一個顏色
+  // （跟之前作業繳交狀況、輪值順序踩到的是同一種問題）。
+  var target = normAssignment(a);
+  var idx = -1;
+  (assignments||[]).forEach(function(x, i){ if(idx<0 && normAssignment(x)===target) idx = i; });
   if(idx < 0) idx = 0;
   var name = RAINBOW_ORDER[idx % RAINBOW_ORDER.length];
   return RAINBOW_COLORS[name];
@@ -847,28 +863,36 @@ function slideshowHtml(){
   var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
   var scale = getSlideFontScale();
   var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
-  var showRadar = galleryShowScores && galleryData.criteria.some(function(c){ return r.perCrit[c.key]!=null; });
+  var hasScores = galleryData.criteria.some(function(c){ return r.perCrit[c.key]!=null; });
+  var showRadar = galleryShowScores && hasScores;
+  var radarBox = showRadar
+    ? radarChartSvg(galleryData.criteria, r.perCrit, 320, scale)
+    : '<div style="color:rgba(255,255,255,0.6);text-align:center;font-size:calc(1.1rem * '+scale+');line-height:1.6;padding:0 12px">' +
+        (hasScores ? '分數尚未公開，<br>達到公開門檻後才會顯示雷達圖。' : '這件作品目前收到的評分還不夠，<br>尚無法顯示雷達圖。') +
+      '</div>';
   return (
     '<div class="slideshow-overlay" style="--slide-scale:'+scale+'">' +
       '<button type="button" class="slide-close" id="slideClose" aria-label="關閉">&times;</button>' +
       '<div class="slide-body">' +
         '<div class="slide-stage">'+galleryImageHtml(r)+'</div>' +
-        (showRadar ? '<div class="slide-radar">'+radarChartSvg(galleryData.criteria, r.perCrit, 320, scale)+'</div>' : '') +
+        '<div class="slide-radar">'+radarBox+'</div>' +
       '</div>' +
-      '<div class="slide-meta">' +
-        '<span class="gallery-assignment-chip" style="background:'+aColor+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
-        galleryMetaHtml(r, scoreVal) +
+      '<div class="slide-font-controls">' +
+        '<button type="button" class="btn btn-accent" data-slide-font="1">A＋</button>' +
+        '<span class="hint" style="color:#fff;text-align:center">'+Math.round(scale*100)+'%</span>' +
+        '<button type="button" class="btn btn-accent" data-slide-font="-1">A－</button>' +
+      '</div>' +
+      '<div class="slide-meta-overlay">' +
+        '<div class="slide-meta">' +
+          '<span class="gallery-assignment-chip" style="background:'+aColor+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
+          galleryMetaHtml(r, scoreVal) +
+        '</div>' +
         '<span class="slide-pos">'+(idx+1)+' / '+rows.length+'</span>' +
       '</div>' +
-      '<div class="slide-controls">' +
+      '<div class="slide-controls-bottom">' +
         '<button type="button" class="btn btn-accent" id="slidePrev">上一張</button>' +
         '<button type="button" class="btn btn-primary" id="slidePlayPause">'+(slideshowPlaying?'暫停':'播放')+'</button>' +
         '<button type="button" class="btn btn-accent" id="slideNext">下一張</button>' +
-      '</div>' +
-      '<div class="slide-controls">' +
-        '<button type="button" class="btn btn-accent" data-slide-font="-1">字體 A－</button>' +
-        '<span class="hint" style="color:#fff;align-self:center;min-width:3.5em;text-align:center">'+Math.round(scale*100)+'%</span>' +
-        '<button type="button" class="btn btn-accent" data-slide-font="1">字體 A＋</button>' +
       '</div>' +
     '</div>'
   );
