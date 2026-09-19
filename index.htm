@@ -243,6 +243,8 @@ var galleryData = null; // { rows, criteria, assignments }
 var gallerySort = 'overall';
 var galleryShowNames = false;
 var galleryShowScores = false;
+var galleryNamesTouched = false; // 使用者有沒有自己手動點過「顯示姓名」——沒點過的話，只要老師開放了就預設直接顯示
+var galleryScoresTouched = false; // 同上，對應「顯示分數」
 var galleryAssignment = null; // null = 還沒選，選過之後固定成某個作業名稱或 '' (全部)
 var lightboxSrc = null; // 點小縮圖放大看清楚用的，跟播放展示的全螢幕輪播是分開的功能
 var slideshowIndex = null;
@@ -644,11 +646,18 @@ function screenGallery(){
     galleryAssignment = (galleryData.assignments && galleryData.assignments[0]) || '';
   }
   var rows = sortedGalleryRows();
-  // 現在姓名開放是每份作業分開設定的，伺服器已經照每一列自己的作業決定要不要附姓名，
-  // 這裡只要看「目前篩選出來的這些作品」裡有沒有任何一筆真的帶了姓名，
-  // 就知道「顯示姓名」這個開關現在有沒有意義可以打開。
+  // 姓名開放是每份作業分開設定的，分數則是滿一定評分人數才自動開放——
+  // 伺服器已經照每一列自己的狀況決定要不要附姓名／分數，這裡只要看「目前篩選出來的
+  // 這些作品」裡有沒有任何一筆真的帶了資料，就知道這兩個開關現在有沒有意義可以打開。
+  // 「有沒有意義」判斷出來以後：使用者自己手動點過開關之前，只要一開放就直接預設顯示，
+  // 不用使用者自己再點一次；使用者點過之後，就照使用者自己的選擇，除非又變回沒東西可顯示。
   var revealed = rows.some(function(r){ return r.studentName != null; });
   if(!revealed) galleryShowNames = false;
+  else if(!galleryNamesTouched) galleryShowNames = true;
+  var scoresRevealed = rows.some(function(r){ return r.overall != null; });
+  if(!scoresRevealed) galleryShowScores = false;
+  else if(!galleryScoresTouched) galleryShowScores = true;
+  var scoreThreshold = galleryData.scoreRevealThreshold;
   var assignmentOptions = '<option value="">全部作業</option>' +
     (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
   var sortOptions = '<option value="overall"'+(gallerySort==='overall'?' selected':'')+'>總平均（預設）</option>' +
@@ -673,7 +682,7 @@ function screenGallery(){
       '<label class="field"><span>排序依據</span><select id="gallerySort">'+sortOptions+'</select></label>' +
       '<div class="gallery-toggles">' +
         '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（老師尚未開放）')+'</label>' +
-        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+'> 顯示分數</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+(scoresRevealed?'':' disabled')+'> 顯示分數'+(scoresRevealed?'':'（滿'+(scoreThreshold!=null?scoreThreshold:15)+'人評分才會自動公開）')+'</label>' +
       '</div>' +
       '<button type="button" class="btn btn-primary" id="startSlideshow" '+(rows.length?'':'disabled')+'>播放展示</button>' +
     '</div>' +
@@ -1116,6 +1125,7 @@ function screenTeacher(){
             return '<label class="toggle-row"><input type="checkbox" class="cfg-names-toggle" data-assignment="'+escapeAttr(a)+'" '+(isNamesRevealedFor(cfg,a)?'checked':'')+'> '+escapeHtml(a)+'</label>';
           }).join('') +
         '</div>' +
+        '<label class="field"><span>分數要滿幾人評分才自動對全班公開（在這之前分數對所有人都先隱藏，避免太早看到分數互相影響）</span><input type="number" min="0" max="200" id="cfg_scoreThreshold" value="'+(cfg.scoreRevealThreshold!=null?cfg.scoreRevealThreshold:15)+'"></label>' +
         '<p class="hint">密語驗證在伺服器端做，其他同學看不到。之後隨時可以在上面兩個清單「新增一行」作業或題目，不會影響已經收到的作品和分數；但如果去修改文字、刪除或搬動「既有」的那幾行，可能會讓已經收到的分數對不上，這種情況才建議避免在評分開始後做。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
@@ -1366,6 +1376,7 @@ function handleSaveConfig(form){
   form.querySelectorAll('.cfg-names-toggle').forEach(function(cb){
     namesRevealedByAssignment[cb.getAttribute('data-assignment')] = cb.checked;
   });
+  var scoreThreshold = Math.max(0, parseInt(form.querySelector('#cfg_scoreThreshold').value,10) || 0);
   var newAssignments = form.querySelector('#cfg_assignments').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
   var authPass = teacherAuthPasscode();
   // 注意：這裡故意不呼叫 render()，因為教師畫面的表單會照「目前存的設定」重畫，
@@ -1373,7 +1384,7 @@ function handleSaveConfig(form){
   // 改成直接操作按鈕本身當作提示，等真的存好了再讓 loadTeacherView() 正常重畫。
   var btn = form.querySelector('button[type="submit"]');
   if(btn){ btn.disabled = true; btn.textContent = '儲存中...'; }
-  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, assignments:newAssignments }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, scoreRevealThreshold:scoreThreshold, assignments:newAssignments }).then(function(res){
     if(!res.ok){
       alert('儲存失敗：密語不對或權限有問題，請重新登入教師專區再試一次。');
       clearTeacherAuth();
@@ -1564,8 +1575,8 @@ function attachHandlers(){
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
     if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
     if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; render(); return; }
-    if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; render(); return; }
-    if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; render(); return; }
+    if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; galleryNamesTouched = true; render(); return; }
+    if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; galleryScoresTouched = true; render(); return; }
     if(e.target.id==='teacherAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
     if(e.target.classList && e.target.classList.contains('equip-color-select')){
       handleEquipSetColorFor(e.target.getAttribute('data-group'), parseInt(e.target.getAttribute('data-index'),10), e.target.value);
