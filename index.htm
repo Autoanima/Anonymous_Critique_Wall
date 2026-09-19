@@ -273,6 +273,16 @@ function normSeat(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,'
 // Google 試算表會把 "01" 這種看起來像數字的文字自動存成數字 1，兩邊格式對不起來
 // 的話，作業繳交狀況、作品牆篩選、教師總表篩選全部都會找不到對應的資料。
 function normAssignment(a){ var s = String(a==null?'':a).trim(); if(s!=='' && !isNaN(Number(s))) return String(Number(s)); return s; }
+/** 判斷某份作業目前有沒有開放姓名，邏輯跟後端 Code.gs 的 isNamesRevealedFor 一致（含舊版設定相容）。 */
+function isNamesRevealedFor(cfg, a){
+  var map = cfg.namesRevealedByAssignment;
+  if(map && typeof map==='object'){
+    var target = normAssignment(a);
+    for(var k in map){ if(map.hasOwnProperty(k) && normAssignment(k)===target) return !!map[k]; }
+    return false;
+  }
+  return !!cfg.namesRevealed;
+}
 function safeUrl(u){
   u = String(u||'').trim();
   if(/^https?:\/\//i.test(u)) return u;
@@ -634,7 +644,10 @@ function screenGallery(){
     galleryAssignment = (galleryData.assignments && galleryData.assignments[0]) || '';
   }
   var rows = sortedGalleryRows();
-  var revealed = !!galleryData.namesRevealed;
+  // 現在姓名開放是每份作業分開設定的，伺服器已經照每一列自己的作業決定要不要附姓名，
+  // 這裡只要看「目前篩選出來的這些作品」裡有沒有任何一筆真的帶了姓名，
+  // 就知道「顯示姓名」這個開關現在有沒有意義可以打開。
+  var revealed = rows.some(function(r){ return r.studentName != null; });
   if(!revealed) galleryShowNames = false;
   var assignmentOptions = '<option value="">全部作業</option>' +
     (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
@@ -1098,7 +1111,11 @@ function screenTeacher(){
         '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
         '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
         '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(cfg.teacherPasscode)+'"></label>' +
-        '<label class="toggle-row"><input type="checkbox" id="cfg_namesRevealed" '+(cfg.namesRevealed?'checked':'')+'> 開放作品牆顯示姓名／座號（建議評分截止後再打開）</label>' +
+        '<div class="field"><span>開放作品牆顯示姓名／座號（可以個別設定每份作業，建議該份作業評分截止後再打開）</span>' +
+          assignments.map(function(a){
+            return '<label class="toggle-row"><input type="checkbox" class="cfg-names-toggle" data-assignment="'+escapeAttr(a)+'" '+(isNamesRevealedFor(cfg,a)?'checked':'')+'> '+escapeHtml(a)+'</label>';
+          }).join('') +
+        '</div>' +
         '<p class="hint">密語驗證在伺服器端做，其他同學看不到。之後隨時可以在上面兩個清單「新增一行」作業或題目，不會影響已經收到的作品和分數；但如果去修改文字、刪除或搬動「既有」的那幾行，可能會讓已經收到的分數對不上，這種情況才建議避免在評分開始後做。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
@@ -1345,7 +1362,10 @@ function handleSaveConfig(form){
     var existing = oldCriteria[i];
     return { key: existing ? existing.key : 'c' + (i+1) + '_' + uid(''), label: label };
   });
-  var namesRevealed = form.querySelector('#cfg_namesRevealed').checked;
+  var namesRevealedByAssignment = {};
+  form.querySelectorAll('.cfg-names-toggle').forEach(function(cb){
+    namesRevealedByAssignment[cb.getAttribute('data-assignment')] = cb.checked;
+  });
   var newAssignments = form.querySelector('#cfg_assignments').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
   var authPass = teacherAuthPasscode();
   // 注意：這裡故意不呼叫 render()，因為教師畫面的表單會照「目前存的設定」重畫，
@@ -1353,7 +1373,7 @@ function handleSaveConfig(form){
   // 改成直接操作按鈕本身當作提示，等真的存好了再讓 loadTeacherView() 正常重畫。
   var btn = form.querySelector('button[type="submit"]');
   if(btn){ btn.disabled = true; btn.textContent = '儲存中...'; }
-  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealed:namesRevealed, assignments:newAssignments }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, assignments:newAssignments }).then(function(res){
     if(!res.ok){
       alert('儲存失敗：密語不對或權限有問題，請重新登入教師專區再試一次。');
       clearTeacherAuth();
