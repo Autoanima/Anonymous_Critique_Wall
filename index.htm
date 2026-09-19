@@ -40,6 +40,7 @@
 }
 *{box-sizing:border-box;}
 html{color-scheme:light dark;scroll-behavior:smooth;}
+[id^="section-"]{scroll-margin-top:112px;}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased;}
 img{max-width:100%;}
 [hidden]{display:none!important;}
@@ -73,6 +74,7 @@ button,input,textarea{font-family:inherit;}
 
 .btn{border:none;border-radius:999px;padding:12px 18px;font-size:0.95rem;font-weight:700;cursor:pointer;flex:1;}
 a.btn{text-decoration:none;text-align:center;display:inline-block;}
+a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
 .btn-primary{background:var(--accent);color:#fff;}
 .btn-accent{background:var(--accent-soft);color:var(--accent-strong);}
@@ -187,17 +189,19 @@ a.btn{text-decoration:none;text-align:center;display:inline-block;}
 .equip-order-edit-row{display:flex;align-items:center;gap:8px;font-size:0.9rem;}
 .equip-order-edit-row select{margin-left:auto;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);}
 .equip-absent{opacity:0.5;text-decoration:line-through;}
-.rotation-track{position:relative;display:flex;height:56px;border-radius:10px;overflow:hidden;margin-top:12px;}
-.rotation-segment{display:flex;align-items:center;justify-content:center;flex:1;min-width:0;color:#fff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:0.95rem;position:relative;opacity:0.75;}
-.rotation-segment.rotation-seg-active{opacity:1;}
+.rotation-track{position:relative;display:flex;height:64px;border-radius:10px;overflow:hidden;margin-top:12px;}
+.rotation-segment{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;min-width:0;color:#fff;font-weight:700;position:relative;opacity:0.7;}
+.rotation-segment.rotation-seg-active{opacity:1;box-shadow:inset 0 0 0 2px rgba(255,255,255,0.85);}
 .rotation-segment+.rotation-segment{border-left:1px solid rgba(255,255,255,0.35);}
-.rotation-seat{white-space:nowrap;}
+.rotation-seat{white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:0.85rem;}
+.rotation-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;padding:0 4px;font-size:0.75rem;font-weight:500;}
 .rotation-playhead{position:absolute;top:-4px;bottom:-4px;width:4px;background:#fff;box-shadow:0 0 6px rgba(0,0,0,0.6);transform:translateX(-50%);border-radius:2px;}
 .float-pause-btn{position:fixed;right:16px;bottom:16px;z-index:60;padding:12px 18px;border-radius:999px;border:none;background:var(--accent);color:#fff;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,0.35);cursor:pointer;font-size:0.9rem;}
 .equip-mini{padding-top:2px;}
 .equip-mini-label{font-size:0.72rem;color:var(--ink-soft);margin-bottom:4px;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.rotation-track-compact{height:26px;border-radius:6px;margin-top:0;}
-.rotation-track-compact .rotation-seat{font-size:0.68rem;}
+.rotation-track-compact{height:48px;border-radius:6px;margin-top:0;}
+.rotation-track-compact .rotation-seat{font-size:0.7rem;}
+.rotation-track-compact .rotation-name{font-size:0.62rem;}
 
 @media (max-width:400px){
   .cta-row{flex-direction:column;}
@@ -263,7 +267,9 @@ var equipmentData = null; // { roster, leader, order, perPersonMinutes, currentI
 var equipmentTickTimer = null;
 var equipmentPollTimer = null;
 var RAINBOW_ORDER = ['紅','橙','黃','綠','藍','靛','紫'];
-var RAINBOW_COLORS = {'紅':'#E4483B','橙':'#E08A3D','黃':'#D9B23C','綠':'#3F9D5C','藍':'#3B6FB0','靛':'#4B4FA8','紫':'#8A4FAE'};
+// 這組色號是照老師提供的參考圖，盡量挑接近的顏色（從照片沒辦法百分之百還原色號，
+// 如果哪個顏色看起來不夠準，之後可以再單獨微調）。
+var RAINBOW_COLORS = {'紅':'#D9536B','橙':'#E0973D','黃':'#C9A227','綠':'#3FA37D','藍':'#3E7CB1','靛':'#6B5FA6','紫':'#A54F9E'};
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -905,7 +911,10 @@ function timelineHtml(state, compact){
   var order = state.order||[];
   if(!order.length) return '';
   var segs = order.map(function(p,i){
-    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+RAINBOW_COLORS[p.color]+'"><span class="rotation-seat">'+escapeHtml(p.seat)+'</span></div>';
+    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+RAINBOW_COLORS[p.color]+'">' +
+      '<span class="rotation-seat">'+escapeHtml(p.seat)+'號</span>' +
+      '<span class="rotation-name">'+escapeHtml(p.name)+'</span>' +
+    '</div>';
   }).join('');
   var playhead = state.active ? '<div class="rotation-playhead" style="left:'+(state.progress*100)+'%"></div>' : '';
   return '<div class="rotation-track'+(compact?' rotation-track-compact':'')+'">'+segs+playhead+'</div>';
@@ -1054,7 +1063,6 @@ function equipAttendanceHtml(eq){
   }).join('');
   return (
     '<div class="card">' +
-      '<h2 class="screen-title" style="font-size:1rem">今日點名</h2>' +
       '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材輪值的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。</p>' +
       groupsHtml +
       '<button type="button" class="btn btn-primary" id="equipSaveAttendance" style="margin-top:10px;width:100%">儲存點名結果</button>' +
@@ -1263,12 +1271,10 @@ function screenTeacher(){
 
   return (
     '<h1 class="screen-title">教師總表</h1>' +
-    '<div class="cta-row" style="flex-wrap:wrap">' +
-      '<a href="#section-grades" class="btn btn-accent">總表</a>' +
-      '<a href="#section-equipment" class="btn btn-accent">器材輪值</a>' +
-      '<a href="#section-settings" class="btn btn-accent">教師設定</a>' +
-      '<a href="#section-danger" class="btn btn-accent">危險區</a>' +
-    '</div>' +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-equipment">器材輪值總覽</h2>' +
+    '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-attendance">今日點名</h2>' +
+    equipAttendanceHtml(equipmentData) +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">總表</h2>' +
     '<div class="stat-row">' +
       statTile(teacherView.submissionCount, '件作品') +
@@ -1286,10 +1292,6 @@ function screenTeacher(){
       '<th>排名</th><th>圖片</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-equipment">器材輪值</h2>' +
-    equipAttendanceHtml(equipmentData) +
-    '<h3 class="screen-title" style="font-size:1rem;margin-top:10px">各組即時狀態</h3>' +
-    '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-settings">教師設定</h2>' +
     configHtml +
     equipmentAdminHtml() +
@@ -1313,7 +1315,16 @@ function navHtml(role){
   // （教師頁面裡本來就有全部組別的完整器材輪值總覽，不需要再顯示單一組別的迷你版）。
   // 老師想切回學生視角測試，就按「離開教師模式」回首頁，那邊有「快速切換身分」可以用。
   if(role==='teacher'){
-    return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span></div></div></header>';
+    // 這排跳轉連結放在 <header> 裡面、跟品牌列一起，是為了讓它跟頂端列一樣
+    // 是 sticky 的——往下滑頁面時會一直貼在最上面，不用滑回頂端才能點。
+    return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span></div></div>' +
+      '<nav class="tabs" style="flex-wrap:wrap">' +
+        '<a href="#section-equipment" class="navbtn">器材輪值</a>' +
+        '<a href="#section-attendance" class="navbtn">點名</a>' +
+        '<a href="#section-settings" class="navbtn">其他設定</a>' +
+        '<a href="#section-danger" class="navbtn">危險區</a>' +
+      '</nav>' +
+    '</header>';
   }
   return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材輪值')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
 }
