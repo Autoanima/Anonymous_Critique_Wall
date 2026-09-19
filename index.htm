@@ -619,6 +619,13 @@ function criterionRow(c){
   return '<div class="criterion"><span class="crit-label">'+escapeHtml(c.label)+'</span><div class="score-dots">'+dots+'</div></div>';
 }
 
+/** 每一項作業都要完成最低評分件數的提醒，沒有 reviewView 可查的時候先用通用說法，等載入了再帶進實際件數。 */
+function reviewQuotaNoticeHtml(required){
+  var text = required
+    ? ('每一項作業都要完成至少 <strong>'+required+' 件</strong>評分，沒有完成的話總分會被扣分。')
+    : '每一項作業都要完成至少老師要求的評分件數，沒有完成的話總分會被扣分。';
+  return '<div class="card" style="border-color:var(--warn)"><p class="hint" style="color:var(--warn)">⚠️ '+text+'</p></div>';
+}
 function screenReview(){
   if(!hasIdentity()){
     return '<h1 class="screen-title">我要評分</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能開始評分。</p>';
@@ -629,6 +636,7 @@ function screenReview(){
     }
     return (
       '<h1 class="screen-title">我要評分</h1>' +
+      reviewQuotaNoticeHtml() +
       '<div class="card assignment-pick">' +
         '<p class="hint">選擇要評哪一份作業：</p>' +
         assignmentsList.map(function(a){ return '<button type="button" class="btn btn-accent" data-pick-assignment="'+escapeAttr(a)+'">'+escapeHtml(a)+'</button>'; }).join('') +
@@ -637,11 +645,11 @@ function screenReview(){
   }
   var switchBtn = '<button type="button" class="footer-link" id="switchAssignment" style="margin-bottom:8px;display:block">目前評分：'+escapeHtml(reviewAssignment)+'（點此換一份作業）</button>';
   if(!reviewView){
-    return '<h1 class="screen-title">我要評分</h1>' + switchBtn + '<p class="hint">載入中...</p>';
+    return '<h1 class="screen-title">我要評分</h1>' + switchBtn + reviewQuotaNoticeHtml() + '<p class="hint">載入中...</p>';
   }
   if(reviewView.done){
     return (
-      '<h1 class="screen-title">我要評分</h1>' + switchBtn +
+      '<h1 class="screen-title">我要評分</h1>' + switchBtn + reviewQuotaNoticeHtml(reviewView.required) +
       '<div class="card done-card">' +
         '<p class="big-check">已完成 '+reviewView.myDone+' / '+reviewView.required+' 件評分，謝謝你！</p>' +
         (reviewView.leftover>0 ? '<button class="btn btn-accent" id="wantMore">還想再多評幾件</button>' : '<p class="hint">目前沒有其他作品可以評了。</p>') +
@@ -652,7 +660,7 @@ function screenReview(){
   var work = reviewView.work;
   var embed = toEmbed(work.driveLink);
   return (
-    '<h1 class="screen-title">我要評分</h1>' + switchBtn +
+    '<h1 class="screen-title">我要評分</h1>' + switchBtn + reviewQuotaNoticeHtml(reviewView.required) +
     '<p class="progress">進度：'+reviewView.myDone+' / '+reviewView.required+'</p>' +
     '<div class="card work-card">' +
       previewFrameHtml(embed) +
@@ -907,7 +915,12 @@ function presentOrderFor(group){
     return v !== false; // 找不到組員資料時保守當作有出席，避免資料沒同步時整組憑空消失
   });
 }
-/** 從全班共用的時間軸，算出某一組現在輪到第幾個人、進度多少、還剩多少時間（只算今天有出席的人）。 */
+/**
+ * 從全班共用的時間軸，算出某一組現在輪到第幾個人、進度多少、還剩多少時間
+ * （只算今天有出席的人）。故意不用單純的 % 讓它無限繞圈——排到最後一個人
+ * 用完就結束，不會自動跳回第一個人重新開始，跟現實中「輪完一輪就結束」
+ * 的用法一致，需要再跑一輪的話由老師自己按「重新排定順序」重新開始。
+ */
 function equipGroupState(eq, group){
   var order = presentOrderFor(group || {});
   var n = order.length;
@@ -916,14 +929,20 @@ function equipGroupState(eq, group){
   var now = eq.pausedAt ? eq.pausedAt : Date.now();
   var elapsed = Math.max(0, now - eq.startedAt - (eq.pausedTotalMs||0));
   var cycleMs = perMs*n;
-  var posInCycle = elapsed % cycleMs;
-  var currentIndex = Math.floor(posInCycle/perMs);
+  if(elapsed >= cycleMs){
+    return {
+      active:true, done:true, order:order,
+      currentIndex: n-1, progress:1, remainingMs:0,
+      paused: !!eq.pausedAt
+    };
+  }
+  var currentIndex = Math.floor(elapsed/perMs);
   return {
-    active:true,
+    active:true, done:false,
     order:order,
     currentIndex: currentIndex,
-    progress: posInCycle/cycleMs,
-    remainingMs: perMs - (posInCycle % perMs),
+    progress: elapsed/cycleMs,
+    remainingMs: perMs - (elapsed % perMs),
     paused: !!eq.pausedAt
   };
 }
@@ -946,10 +965,11 @@ function equipMiniBarHtml(){
   if(!group) return '';
   var state = equipGroupState(equipmentData, group);
   if(!state.order.length) return '';
-  var current = state.active ? state.order[state.currentIndex] : null;
-  var label = state.active
-    ? (escapeHtml(current.seat)+'號 '+escapeHtml(current.name)+' 使用中　'+fmtTime(state.remainingMs)+(state.paused?'　（已暫停）':''))
-    : '尚未開始計時';
+  var current = (state.active && !state.done) ? state.order[state.currentIndex] : null;
+  var label = state.done ? '本輪已全部使用完畢'
+    : state.active
+      ? (escapeHtml(current.seat)+'號 '+escapeHtml(current.name)+' 使用中　'+fmtTime(state.remainingMs)+(state.paused?'　（已暫停）':''))
+      : '尚未開始計時';
   return (
     '<div class="equip-mini">' +
       '<div class="equip-mini-label">'+escapeHtml(group.name)+'：'+label+'</div>' +
@@ -982,8 +1002,8 @@ function screenEquipment(){
   }
   var state = equipGroupState(eq, group);
   var order = state.order;
-  var current = state.active ? order[state.currentIndex] : null;
-  var next = (state.active && order.length) ? order[(state.currentIndex+1)%order.length] : null;
+  var current = (state.active && !state.done) ? order[state.currentIndex] : null;
+  var next = (state.active && !state.done && order.length) ? order[(state.currentIndex+1)%order.length] : null;
   var memberListHtml = '<ul class="equip-order-list">' + group.members.map(function(m){
     return '<li class="'+(m.present?'':'equip-absent')+'">'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+(group.leader===m.seat?'（組長）':'')+'</li>';
   }).join('') + '</ul>';
@@ -992,6 +1012,14 @@ function screenEquipment(){
     timelineSection = '<div class="card"><p class="hint">老師還沒排定這一組的輪流順序。</p></div>';
   } else if(!state.active){
     timelineSection = '<div class="card"><p class="hint">老師還沒開始計時。</p>' + timelineHtml(state) + '</div>';
+  } else if(state.done){
+    timelineSection =
+      '<div class="card equip-current" style="border-left:8px solid var(--good)">' +
+        '<p class="equip-turn-label">本輪已經全部使用完畢</p>' +
+        '<p class="hint">最後使用的是：'+escapeHtml(order[order.length-1].seat)+'號 '+escapeHtml(order[order.length-1].name)+'</p>' +
+        '<p class="hint">如果要再跑一輪，請跟老師反應，由老師「重新排定順序」重新開始。</p>' +
+        timelineHtml(state) +
+      '</div>';
   } else {
     timelineSection =
       '<div class="card equip-current" style="border-left:8px solid '+(current?RAINBOW_COLORS[current.color]:'#999')+'">' +
@@ -1021,13 +1049,17 @@ function teacherEquipmentOverviewHtml(eq){
   return eq.groups.map(function(g){
     var state = equipGroupState(eq, g);
     var order = state.order;
-    var current = state.active ? order[state.currentIndex] : null;
-    var next = (state.active && order.length) ? order[(state.currentIndex+1)%order.length] : null;
+    var current = (state.active && !state.done) ? order[state.currentIndex] : null;
+    var next = (state.active && !state.done && order.length) ? order[(state.currentIndex+1)%order.length] : null;
     var body;
     if(!order.length){
       body = '<p class="hint">還沒排定順序。</p>';
     } else if(!state.active){
       body = '<p class="hint">還沒開始計時。</p>' + timelineHtml(state, true);
+    } else if(state.done){
+      body =
+        '<p class="hint" style="color:var(--good);font-weight:700">本輪已全部使用完畢</p>' +
+        timelineHtml(state, true);
     } else {
       body =
         (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停</p>' : '') +
@@ -1096,11 +1128,17 @@ function equipAttendanceHtml(eq){
  */
 function teacherEquipMiniHtml(eq){
   if(!eq || !eq.groups || !eq.groups.length) return '';
-  var g = eq.groups.filter(function(gr){ return (gr.order||[]).length; })[0];
-  if(!g) return '';
-  var state = equipGroupState(eq, g);
-  if(!state.active) return '<span class="hint" style="font-size:0.75rem">尚未開始計時</span>';
-  return '<span class="hint" style="font-size:0.8rem;font-family:\'JetBrains Mono\',monospace;white-space:nowrap">剩 '+fmtTime(state.remainingMs)+(state.paused?'（暫停）':'')+'</span>';
+  var candidates = eq.groups.filter(function(gr){ return (gr.order||[]).length; });
+  if(!candidates.length) return '';
+  // 因為現在輪完一輪就會自動結束（不會無限繞圈），不同組人數不一樣，
+  // 結束的時間點也會不一樣，不能再隨便挑一組來代表全部——這裡改成找
+  // 「還在跑」的那一組來顯示；如果全部組別都跑完了，就直接說跑完了。
+  var states = candidates.map(function(g){ return equipGroupState(eq, g); });
+  var running = states.filter(function(s){ return s.active && !s.done; })[0];
+  if(running) return '<span class="hint" style="font-size:0.8rem;font-family:\'JetBrains Mono\',monospace;white-space:nowrap">剩 '+fmtTime(running.remainingMs)+(running.paused?'（暫停）':'')+'</span>';
+  var anyStarted = states.some(function(s){ return s.active; });
+  if(!anyStarted) return '<span class="hint" style="font-size:0.75rem">尚未開始計時</span>';
+  return '<span class="hint" style="font-size:0.75rem;color:var(--good)">全部組別已跑完</span>';
 }
 /** 開始/暫停全班計時的按鈕，跟下面的跳轉連結收在同一橫排裡，字盡量簡短。 */
 function equipStartPauseButtonsHtml(eq){
@@ -1205,6 +1243,80 @@ function handleEquipPauseToggle(){
   handleEquipAction('equipmentTogglePause');
 }
 
+/** 座號由小到大排序，數字座號用數字比、非數字座號退回文字比較，避免 "10" 排到 "2" 前面。 */
+function bySeatAsc(a, b){
+  var na = parseInt(a.seat, 10), nb = parseInt(b.seat, 10);
+  if(!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+  return String(a.seat).localeCompare(String(b.seat));
+}
+/**
+ * 從「總表」跟「各作業評分進度」拼出全班名單（座號＋姓名）——這個系統本來就沒有
+ * 另外維護一份「全班名單」，只能反推「曾經交過作品、或評過分」的人；一次都沒有
+ * 交、也沒有評過的學生沒辦法從資料裡生出來，就不會出現在下面兩張表裡。
+ */
+function buildStudentRoster(tv){
+  var bySeatKey = {};
+  (tv.rows||[]).forEach(function(r){
+    var key = normSeat(r.studentSeat);
+    if(key && !bySeatKey[key]) bySeatKey[key] = { seat: r.studentSeat, name: r.studentName };
+  });
+  Object.keys(tv.reviewersByAssignment||{}).forEach(function(a){
+    (tv.reviewersByAssignment[a]||[]).forEach(function(rv){
+      var key = normSeat(rv.seat);
+      if(key && !bySeatKey[key]) bySeatKey[key] = { seat: rv.seat, name: rv.name };
+    });
+  });
+  return Object.keys(bySeatKey).map(function(k){ return bySeatKey[k]; }).sort(bySeatAsc);
+}
+/** 每項作業都沒評到最低件數的人，跨作業整理成一張表，方便扣分時參考，依座號排序。 */
+function reviewShortfallHtml(tv, cfg){
+  var required = cfg.reviewsPerStudent;
+  var rows = [];
+  Object.keys(tv.reviewersByAssignment||{}).forEach(function(a){
+    (tv.reviewersByAssignment[a]||[]).forEach(function(rv){
+      if(!rv.met) rows.push({ seat: rv.seat, name: rv.name, assignment: a, reviewCount: rv.reviewCount });
+    });
+  });
+  rows.sort(function(a,b){
+    var s = bySeatAsc(a,b);
+    return s !== 0 ? s : String(a.assignment).localeCompare(String(b.assignment));
+  });
+  if(!rows.length){
+    return '<div class="card"><p class="hint">目前每個人在每份作業都已經達到最低評分件數要求，沒有人需要扣分。</p></div>';
+  }
+  var body = rows.map(function(r){
+    return '<tr>' +
+      '<td class="num">'+escapeHtml(r.seat)+'</td>' +
+      '<td>'+escapeHtml(r.name)+'</td>' +
+      '<td>'+escapeHtml(r.assignment)+'</td>' +
+      '<td class="num">'+r.reviewCount+' / '+required+'</td>' +
+      '<td class="num" style="color:var(--low);font-weight:700">還差 '+(required-r.reviewCount)+'</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
+    '<th>座號</th><th>姓名</th><th>作業</th><th>已評/需求</th><th>還差幾件</th>' +
+  '</tr></thead><tbody>'+body+'</tbody></table></div>';
+}
+/** 每個人、每份作業有沒有交作品的總表，依座號排序，交過的作業會用「總表」裡實際的作品筆數判斷。 */
+function submissionMatrixHtml(tv, assignments){
+  var roster = buildStudentRoster(tv);
+  if(!roster.length){
+    return '<div class="card"><p class="hint">目前還沒有任何交作品或評分紀錄。</p></div>';
+  }
+  var submittedSet = {};
+  (tv.rows||[]).forEach(function(r){
+    submittedSet[normSeat(r.studentSeat)+'::'+normAssignment(r.assignment)] = true;
+  });
+  var head = assignments.map(function(a){ return '<th>'+escapeHtml(a)+'</th>'; }).join('');
+  var body = roster.map(function(s){
+    var cells = assignments.map(function(a){
+      var got = submittedSet[normSeat(s.seat)+'::'+normAssignment(a)];
+      return '<td class="num">'+(got ? '<span style="color:var(--good)">已交</span>' : '<span class="hint">未交</span>')+'</td>';
+    }).join('');
+    return '<tr><td class="num">'+escapeHtml(s.seat)+'</td><td>'+escapeHtml(s.name)+'</td>'+cells+'</tr>';
+  }).join('');
+  return '<div class="table-wrap card"><table class="grade-table"><thead><tr><th>座號</th><th>姓名</th>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>';
+}
 function screenTeacher(){
   if(!teacherView){
     return '<h1 class="screen-title">教師專區</h1><p class="hint">載入中...</p>';
@@ -1329,6 +1441,12 @@ function screenTeacher(){
       '<th>排名</th><th>圖片</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th><th>裝置代碼</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
+    '<h2 class="screen-title" style="font-size:1.1rem">評分未達標名單（扣分參考）</h2>' +
+    '<p class="hint">列出每一份作業裡，評分件數還沒達到最低要求的人，依座號排序，跨作業合併在同一張表。</p>' +
+    reviewShortfallHtml(teacherView, cfg) +
+    '<h2 class="screen-title" style="font-size:1.1rem">作業繳交狀況總表</h2>' +
+    '<p class="hint">依座號列出每個人每一份作業有沒有交，名單是從「曾經交過作品或評過分」的人反推出來的，完全沒使用過系統的人不會出現在這裡。</p>' +
+    submissionMatrixHtml(teacherView, assignments) +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-settings">教師設定</h2>' +
     configHtml +
     equipmentAdminHtml() +
