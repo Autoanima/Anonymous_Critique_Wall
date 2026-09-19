@@ -266,10 +266,12 @@ var galleryViewMode = 'grid'; // 'grid' | 'table'
 var equipmentData = null; // { roster, leader, order, perPersonMinutes, currentIndex, turnStartedAt, running }
 var equipmentTickTimer = null;
 var equipmentPollTimer = null;
-var RAINBOW_ORDER = ['紅','橙','黃','綠','藍','靛','紫'];
-// 這組色號是照老師提供的參考圖，盡量挑接近的顏色（從照片沒辦法百分之百還原色號，
-// 如果哪個顏色看起來不夠準，之後可以再單獨微調）。
-var RAINBOW_COLORS = {'紅':'#D9536B','橙':'#E0973D','黃':'#C9A227','綠':'#3FA37D','藍':'#3E7CB1','靛':'#6B5FA6','紫':'#A54F9E'};
+// 這組順序跟色號是照老師提供的參考圖由左到右排的（共 8 種顏色，比原本的 7 色多一個），
+// 從照片沒辦法百分之百還原色號，是盡量挑接近的顏色，如果哪個顏色看起來不夠準，
+// 之後可以再單獨微調。這裡改了名字或順序，記得 Code.gs 的 RAINBOW 陣列也要跟著改，
+// 兩邊的顏色名稱要完全對得上，不然舊資料存的名稱在這裡會找不到對應的色號。
+var RAINBOW_ORDER = ['金黃','橄欖','藍綠','靛藍','紫','綠','藍','粉'];
+var RAINBOW_COLORS = {'金黃':'#C9A227','橄欖':'#A67C3D','藍綠':'#3D9B8F','靛藍':'#3D6B7D','紫':'#6B4FA0','綠':'#4C8C4A','藍':'#3E6FB5','粉':'#B85C7C'};
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -917,6 +919,11 @@ function presentOrderFor(group){
     return v !== false; // 找不到組員資料時保守當作有出席，避免資料沒同步時整組憑空消失
   });
 }
+/** 組長不再是另外抽的，就是今天出席、輪值順序排第一位的那個人。 */
+function leaderSeatFor(group){
+  var order = presentOrderFor(group || {});
+  return order.length ? order[0].seat : null;
+}
 /**
  * 從全班共用的時間軸，算出某一組現在輪到第幾個人、進度多少、還剩多少時間
  * （只算今天有出席的人）。故意不用單純的 % 讓它無限繞圈——排到最後一個人
@@ -1006,8 +1013,9 @@ function screenEquipment(){
   var order = state.order;
   var current = (state.active && !state.done) ? order[state.currentIndex] : null;
   var next = (state.active && !state.done && order.length) ? order[(state.currentIndex+1)%order.length] : null;
+  var leaderSeat = leaderSeatFor(group);
   var memberListHtml = '<ul class="equip-order-list">' + group.members.map(function(m){
-    return '<li class="'+(m.present?'':'equip-absent')+'">'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+(group.leader===m.seat?'（組長）':'')+'</li>';
+    return '<li class="'+(m.present?'':'equip-absent')+'">'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+(leaderSeat===m.seat?'（組長）':'')+'</li>';
   }).join('') + '</ul>';
   var timelineSection;
   if(!order.length){
@@ -1035,7 +1043,7 @@ function screenEquipment(){
   }
   return (
     '<h1 class="screen-title">器材輪值</h1>' +
-    '<div class="card"><h2 class="screen-title" style="font-size:1rem">'+escapeHtml(group.name)+'　組長：'+escapeHtml(group.leader?(group.leader+' 號'):'（尚未抽）')+'</h2>'+memberListHtml+'</div>' +
+    '<div class="card"><h2 class="screen-title" style="font-size:1rem">'+escapeHtml(group.name)+'　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'（尚未排定順序）')+'</h2>'+memberListHtml+'</div>' +
     timelineSection
   );
 }
@@ -1071,7 +1079,7 @@ function teacherEquipmentOverviewHtml(eq){
     }
     return (
       '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+RAINBOW_COLORS[current.color]:'')+'">' +
-        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml(g.leader?(g.leader+' 號'):'（尚未抽）')+'</h3>' +
+        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml((leaderSeatFor(g))?(leaderSeatFor(g)+' 號'):'（尚未排定順序）')+'</h3>' +
         body +
       '</div>'
     );
@@ -1148,7 +1156,14 @@ function teacherEquipMiniHtml(eq){
  */
 function equipDurationQuickHtml(eq){
   var minutes = eq ? eq.perPersonMinutes : 6;
-  return '<label class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:3px;margin-left:8px">每人<input type="number" min="1" max="60" id="equipDurationQuick" value="'+minutes+'" style="width:40px;padding:1px 3px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-size:0.75rem">分</label>';
+  var btnStyle = 'width:20px;height:20px;line-height:18px;padding:0;border-radius:5px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-size:0.85rem;cursor:pointer;';
+  return '<span class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:4px;margin-left:8px">' +
+    '每人' +
+    '<button type="button" class="equip-duration-btn" data-delta="-1" style="'+btnStyle+'">－</button>' +
+    '<span id="equipDurationValue" style="min-width:1.4em;text-align:center;display:inline-block;font-family:\'JetBrains Mono\',monospace">'+minutes+'</span>' +
+    '<button type="button" class="equip-duration-btn" data-delta="1" style="'+btnStyle+'">＋</button>' +
+    '分' +
+  '</span>';
 }
 /** 開始/暫停全班計時的按鈕，跟下面的跳轉連結收在同一橫排裡，字盡量簡短。 */
 function equipStartPauseButtonsHtml(eq){
@@ -1167,15 +1182,16 @@ function equipmentAdminHtml(){
     return g.name + '\n' + g.members.map(function(m){ return m.seat+' '+m.name; }).join('\n');
   }).join('\n\n');
   var groupsHtml = eq.groups.map(function(g){
+    var leaderSeat = leaderSeatFor(g);
     var orderRows = (g.order||[]).map(function(p,i){
       var opts = RAINBOW_ORDER.map(function(c){ return '<option value="'+c+'"'+(p.color===c?' selected':'')+'>'+c+'</option>'; }).join('');
-      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(g.leader===p.seat?'（組長）':'')+'</span><select class="equip-color-select" data-group="'+escapeAttr(g.name)+'" data-index="'+i+'">'+opts+'</select></div>';
+      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(leaderSeat===p.seat?'（組長）':'')+'</span><select class="equip-color-select" data-group="'+escapeAttr(g.name)+'" data-index="'+i+'">'+opts+'</select></div>';
     }).join('');
     return (
       '<div class="card" style="margin-top:10px">' +
-        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'</h3>' +
-        (g.members.length ? '<button type="button" class="btn btn-accent equip-draw-leader" data-group="'+escapeAttr(g.name)+'" style="width:100%">隨機抽組長（目前：'+escapeHtml(g.leader?(g.leader+' 號'):'尚未抽')+'）</button>' : '<p class="hint">這組還沒有組員。</p>') +
-        (orderRows ? '<div class="equip-order-edit">'+orderRows+'</div>' : '<p class="hint" style="margin-top:8px">還沒有排順序。</p>') +
+        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'（尚未排定順序）')+'</h3>' +
+        (g.members.length ? '' : '<p class="hint">這組還沒有組員。</p>') +
+        (orderRows ? '<div class="equip-order-edit">'+orderRows+'</div>' : '<p class="hint" style="margin-top:8px">還沒有排順序（點名存檔後，只要還沒開始計時就會自動排一次）。</p>') +
       '</div>'
     );
   }).join('');
@@ -1231,12 +1247,9 @@ function handleEquipSaveAttendance(){
   });
   handleEquipAction('equipmentSetAttendance', { attendance: att });
 }
-function handleEquipDrawLeaderFor(groupName){
-  handleEquipAction('equipmentDrawLeader', { groupName: groupName });
-}
-function handleEquipQuickDuration(input){
-  var minutes = Math.max(1, Math.min(60, parseInt(input.value,10) || 6));
-  input.value = minutes;
+function handleEquipQuickDuration(delta){
+  var cur = equipmentData ? equipmentData.perPersonMinutes : 6;
+  var minutes = Math.max(1, Math.min(60, cur + delta));
   handleEquipAction('equipmentSetDuration', { minutes: minutes });
 }
 function handleEquipBuildOrder(){
@@ -1253,79 +1266,24 @@ function handleEquipPauseToggle(){
   handleEquipAction('equipmentTogglePause');
 }
 
-/** 座號由小到大排序，數字座號用數字比、非數字座號退回文字比較，避免 "10" 排到 "2" 前面。 */
-function bySeatAsc(a, b){
-  var na = parseInt(a.seat, 10), nb = parseInt(b.seat, 10);
-  if(!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
-  return String(a.seat).localeCompare(String(b.seat));
-}
 /**
- * 從「總表」跟「各作業評分進度」拼出全班名單（座號＋姓名）——這個系統本來就沒有
- * 另外維護一份「全班名單」，只能反推「曾經交過作品、或評過分」的人；一次都沒有
- * 交、也沒有評過的學生沒辦法從資料裡生出來，就不會出現在下面兩張表裡。
+ * 「評分未達標名單」「作業繳交狀況」不塞進網頁畫面——全班快 30 人，網頁上的表格
+ * 太擠反而看不清楚。這裡只顯示一個簡單的數字提醒，實際的名單/總表按這顆按鈕
+ * 直接整理進 Google 試算表裡的兩個新分頁，用試算表內建的排序/篩選來看更方便。
  */
-function buildStudentRoster(tv){
-  var bySeatKey = {};
-  (tv.rows||[]).forEach(function(r){
-    var key = normSeat(r.studentSeat);
-    if(key && !bySeatKey[key]) bySeatKey[key] = { seat: r.studentSeat, name: r.studentName };
-  });
-  Object.keys(tv.reviewersByAssignment||{}).forEach(function(a){
-    (tv.reviewersByAssignment[a]||[]).forEach(function(rv){
-      var key = normSeat(rv.seat);
-      if(key && !bySeatKey[key]) bySeatKey[key] = { seat: rv.seat, name: rv.name };
-    });
-  });
-  return Object.keys(bySeatKey).map(function(k){ return bySeatKey[k]; }).sort(bySeatAsc);
-}
-/** 每項作業都沒評到最低件數的人，跨作業整理成一張表，方便扣分時參考，依座號排序。 */
-function reviewShortfallHtml(tv, cfg){
+function reportsExportSectionHtml(tv, cfg){
   var required = cfg.reviewsPerStudent;
-  var rows = [];
+  var shortfallCount = 0;
   Object.keys(tv.reviewersByAssignment||{}).forEach(function(a){
-    (tv.reviewersByAssignment[a]||[]).forEach(function(rv){
-      if(!rv.met) rows.push({ seat: rv.seat, name: rv.name, assignment: a, reviewCount: rv.reviewCount });
-    });
+    (tv.reviewersByAssignment[a]||[]).forEach(function(rv){ if(!rv.met) shortfallCount++; });
   });
-  rows.sort(function(a,b){
-    var s = bySeatAsc(a,b);
-    return s !== 0 ? s : String(a.assignment).localeCompare(String(b.assignment));
-  });
-  if(!rows.length){
-    return '<div class="card"><p class="hint">目前每個人在每份作業都已經達到最低評分件數要求，沒有人需要扣分。</p></div>';
-  }
-  var body = rows.map(function(r){
-    return '<tr>' +
-      '<td class="num">'+escapeHtml(r.seat)+'</td>' +
-      '<td>'+escapeHtml(r.name)+'</td>' +
-      '<td>'+escapeHtml(r.assignment)+'</td>' +
-      '<td class="num">'+r.reviewCount+' / '+required+'</td>' +
-      '<td class="num" style="color:var(--low);font-weight:700">還差 '+(required-r.reviewCount)+'</td>' +
-    '</tr>';
-  }).join('');
-  return '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-    '<th>座號</th><th>姓名</th><th>作業</th><th>已評/需求</th><th>還差幾件</th>' +
-  '</tr></thead><tbody>'+body+'</tbody></table></div>';
-}
-/** 每個人、每份作業有沒有交作品的總表，依座號排序，交過的作業會用「總表」裡實際的作品筆數判斷。 */
-function submissionMatrixHtml(tv, assignments){
-  var roster = buildStudentRoster(tv);
-  if(!roster.length){
-    return '<div class="card"><p class="hint">目前還沒有任何交作品或評分紀錄。</p></div>';
-  }
-  var submittedSet = {};
-  (tv.rows||[]).forEach(function(r){
-    submittedSet[normSeat(r.studentSeat)+'::'+normAssignment(r.assignment)] = true;
-  });
-  var head = assignments.map(function(a){ return '<th>'+escapeHtml(a)+'</th>'; }).join('');
-  var body = roster.map(function(s){
-    var cells = assignments.map(function(a){
-      var got = submittedSet[normSeat(s.seat)+'::'+normAssignment(a)];
-      return '<td class="num">'+(got ? '<span style="color:var(--good)">已交</span>' : '<span class="hint">未交</span>')+'</td>';
-    }).join('');
-    return '<tr><td class="num">'+escapeHtml(s.seat)+'</td><td>'+escapeHtml(s.name)+'</td>'+cells+'</tr>';
-  }).join('');
-  return '<div class="table-wrap card"><table class="grade-table"><thead><tr><th>座號</th><th>姓名</th>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>';
+  return (
+    '<div class="card">' +
+      '<p class="hint">目前跨所有作業合計有 <strong style="color:'+(shortfallCount?'var(--low)':'var(--good)')+'">'+shortfallCount+'</strong> 筆「評分件數未達 '+required+' 件」的記錄。</p>' +
+      '<p class="hint">按下面按鈕，會把「評分未達標名單」和「作業繳交狀況」依座號排序整理好，直接寫進你 Google 試算表裡的兩個新分頁（每次都會整個更新成最新資料，不是累加）。</p>' +
+      '<button type="button" class="btn btn-primary" id="exportReportsToSheet" style="width:100%" '+(loading?'disabled':'')+'>'+(loading?'處理中...':'更新試算表報表')+'</button>' +
+    '</div>'
+  );
 }
 function screenTeacher(){
   if(!teacherView){
@@ -1451,12 +1409,8 @@ function screenTeacher(){
       '<th>排名</th><th>圖片</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th><th>裝置代碼</th>' +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
-    '<h2 class="screen-title" style="font-size:1.1rem">評分未達標名單（扣分參考）</h2>' +
-    '<p class="hint">列出每一份作業裡，評分件數還沒達到最低要求的人，依座號排序，跨作業合併在同一張表。</p>' +
-    reviewShortfallHtml(teacherView, cfg) +
-    '<h2 class="screen-title" style="font-size:1.1rem">作業繳交狀況總表</h2>' +
-    '<p class="hint">依座號列出每個人每一份作業有沒有交，名單是從「曾經交過作品或評過分」的人反推出來的，完全沒使用過系統的人不會出現在這裡。</p>' +
-    submissionMatrixHtml(teacherView, assignments) +
+    '<h2 class="screen-title" style="font-size:1.1rem">評分未達標／繳交狀況報表</h2>' +
+    reportsExportSectionHtml(teacherView, cfg) +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-settings">教師設定</h2>' +
     configHtml +
     equipmentAdminHtml() +
@@ -1764,6 +1718,22 @@ function handleSaveConfig(form){
  * 除了教師密語本身之外，還要在畫面上「再打一次密語」才會送出，
  * 加上一個瀏覽器原生的 confirm() 對話框，避免誤觸。
  */
+function handleExportReportsToSheet(){
+  var btn = document.getElementById('exportReportsToSheet');
+  if(btn){ btn.disabled = true; btn.textContent = '處理中...'; }
+  apiGet('exportReportsToSheet', { passcode: teacherAuthPasscode() }).then(function(res){
+    if(!res.ok){
+      alert('更新失敗：'+(res.error||'unknown'));
+      if(btn){ btn.disabled = false; btn.textContent = '更新試算表報表'; }
+      return;
+    }
+    setToast('success', '已更新試算表：評分未達標名單 '+res.shortfallCount+' 筆、作業繳交狀況 '+res.rosterCount+' 人。');
+    render();
+  }).catch(function(e){
+    if(btn){ btn.disabled = false; btn.textContent = '更新試算表報表'; }
+    alert('更新失敗：'+e.message);
+  });
+}
 function handleResetAllData(){
   var input = document.getElementById('reset_confirm_pass');
   var typed = input ? input.value.trim() : '';
@@ -1941,6 +1911,7 @@ function attachHandlers(){
       return;
     }
     if(e.target.closest('#resetAllDataBtn')){ handleResetAllData(); return; }
+    if(e.target.closest('#exportReportsToSheet')){ handleExportReportsToSheet(); return; }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
     if(e.target.closest('#downloadBundle')){ handleDownloadBundle(); return; }
@@ -1969,14 +1940,13 @@ function attachHandlers(){
     }
     if(e.target.closest('#equipSaveGroups')){ handleEquipSaveGroups(); return; }
     if(e.target.closest('#equipSaveAttendance')){ handleEquipSaveAttendance(); return; }
-    var drawBtn = e.target.closest('.equip-draw-leader');
-    if(drawBtn){ handleEquipDrawLeaderFor(drawBtn.getAttribute('data-group')); return; }
     if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
+    var durBtn = e.target.closest('.equip-duration-btn');
+    if(durBtn){ handleEquipQuickDuration(parseInt(durBtn.getAttribute('data-delta'),10)); return; }
     if(e.target.closest('#equipStart')){ handleEquipStart(); return; }
     if(e.target.closest('#equipPauseToggle') || e.target.closest('#floatPauseBtn')){ handleEquipPauseToggle(); return; }
   };
   root.onchange = function(e){
-    if(e.target.id==='equipDurationQuick'){ handleEquipQuickDuration(e.target); return; }
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
     if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
     if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; render(); return; }
