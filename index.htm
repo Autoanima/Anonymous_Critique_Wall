@@ -158,23 +158,28 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .toggle-row{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink-soft);}
 .toggle-row input{width:16px;height:16px;}
 .gallery-grid{column-count:2;column-gap:12px;}
-.gallery-card{break-inside:avoid;margin-bottom:12px;background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--radius) + 2px);overflow:hidden;box-shadow:var(--shadow);cursor:pointer;}
+.gallery-card{break-inside:avoid;margin-bottom:12px;background:var(--surface);border:1px solid var(--line);border-left-width:6px;border-left-style:solid;border-radius:calc(var(--radius) + 2px);overflow:hidden;box-shadow:var(--shadow);cursor:pointer;}
 .gallery-img{width:100%;background:var(--surface-2);}
 .gallery-img img{width:100%;display:block;}
 .gallery-img iframe{width:100%;height:200px;border:0;display:block;}
 .gallery-meta{padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:0.78rem;}
 .gallery-name{color:var(--ink-soft);}
 .gallery-score{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--accent-strong);background:var(--accent-soft);padding:1px 6px;border-radius:6px;}
+.gallery-assignment-chip{color:#fff;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap;}
 @media (min-width:600px){ .gallery-grid{column-count:3;} }
 
-.slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.94);z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:10px;}
+.slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.96);z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:10px;--slide-scale:1;}
 .slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
-.slide-stage{width:98vw;height:86vh;display:flex;align-items:center;justify-content:center;}
+.slide-body{width:98vw;height:78vh;display:flex;gap:16px;align-items:stretch;min-height:0;}
+.slide-stage{flex:3;min-width:0;display:flex;align-items:center;justify-content:center;}
 .slide-stage img{width:100%;height:100%;border-radius:6px;object-fit:contain;}
 .slide-stage iframe{width:100%;height:100%;border:0;border-radius:6px;background:#fff;}
-.slide-meta{color:#fff;display:flex;gap:10px;align-items:center;font-size:0.95rem;flex-wrap:wrap;justify-content:center;}
-.slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:2px 8px;border-radius:6px;font-weight:700;}
-.slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:0.85rem;}
+.slide-radar{flex:1;min-width:220px;max-width:380px;display:flex;align-items:center;justify-content:center;}
+@media (max-width:800px){ .slide-body{flex-direction:column;height:auto;} .slide-stage{height:48vh;width:100%;} .slide-radar{width:100%;max-width:none;height:32vh;min-width:0;} }
+.slide-meta{color:#fff;display:flex;gap:calc(10px * var(--slide-scale));align-items:center;font-size:calc(1.8rem * var(--slide-scale));flex-wrap:wrap;justify-content:center;}
+.slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:0.15em 0.6em;border-radius:0.4em;font-weight:700;}
+.slide-meta .gallery-score{font-size:1em;padding:0.15em 0.6em;}
+.slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:calc(1.3rem * var(--slide-scale));}
 .slide-controls{display:flex;gap:10px;}
 
 .equip-current{text-align:center;}
@@ -688,6 +693,60 @@ function sortedGalleryRows(){
   });
   return rows;
 }
+/** 依作業在清單裡的位置，從器材輪值那組 8 色色盤挑一個固定顏色，讓同一份作業在整個作品牆裡顏色都一樣。 */
+function assignmentColorFor(assignments, a){
+  var idx = (assignments||[]).indexOf(a);
+  if(idx < 0) idx = 0;
+  var name = RAINBOW_ORDER[idx % RAINBOW_ORDER.length];
+  return RAINBOW_COLORS[name];
+}
+/**
+ * 投影時用的雷達圖，一題一軸，SVG 畫的，字體大小跟著 slideFontScale 一起放大，
+ * 確保坐最後一排的人也看得清楚。分數用滿分 5 分當作最外圈。
+ */
+function radarChartSvg(criteria, perCrit, size, fontScale){
+  var n = criteria.length;
+  if(!n) return '';
+  var cx = size/2, cy = size/2, r = size*0.34, maxVal = 5;
+  function pointFor(i, val){
+    var angle = (Math.PI*2*i/n) - Math.PI/2;
+    var rad = r * (Math.max(0,val)/maxVal);
+    return [cx + rad*Math.cos(angle), cy + rad*Math.sin(angle)];
+  }
+  var rings = [1,2,3,4,5].map(function(level){
+    var pts = criteria.map(function(c,i){ return pointFor(i, level).join(','); }).join(' ');
+    return '<polygon points="'+pts+'" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1"/>';
+  }).join('');
+  var axes = criteria.map(function(c,i){
+    var p = pointFor(i, maxVal);
+    return '<line x1="'+cx+'" y1="'+cy+'" x2="'+p[0]+'" y2="'+p[1]+'" stroke="rgba(255,255,255,0.28)" stroke-width="1"/>';
+  }).join('');
+  var dataPts = criteria.map(function(c,i){ return pointFor(i, perCrit[c.key]==null?0:perCrit[c.key]).join(','); }).join(' ');
+  var dots = criteria.map(function(c,i){
+    if(perCrit[c.key]==null) return '';
+    var p = pointFor(i, perCrit[c.key]);
+    return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="'+(4*fontScale)+'" fill="#7FC2CF"/>';
+  }).join('');
+  var labelR = r * 1.3;
+  var labels = criteria.map(function(c,i){
+    var angle = (Math.PI*2*i/n) - Math.PI/2;
+    var lx = cx + labelR*Math.cos(angle), ly = cy + labelR*Math.sin(angle);
+    var cosA = Math.cos(angle);
+    var anchor = Math.abs(cosA)<0.3 ? 'middle' : (cosA>0?'start':'end');
+    return '<text x="'+lx+'" y="'+ly+'" fill="#fff" font-size="'+(size*0.05*fontScale)+'" text-anchor="'+anchor+'" dominant-baseline="middle">'+escapeHtml(c.label)+'</text>';
+  }).join('');
+  return '<svg viewBox="0 0 '+size+' '+size+'" width="100%" height="100%">' +
+    rings + axes +
+    '<polygon points="'+dataPts+'" fill="rgba(127,194,207,0.35)" stroke="#7FC2CF" stroke-width="'+(2.5*fontScale)+'"/>' +
+    dots + labels +
+  '</svg>';
+}
+function getSlideFontScale(){ return parseFloat(localStorage.getItem('crit.slideFontScale')) || 1; }
+function handleSlideFontScale(delta){
+  var next = Math.max(0.6, Math.min(2.5, Math.round((getSlideFontScale()+delta)*10)/10));
+  localStorage.setItem('crit.slideFontScale', next);
+  render();
+}
 function galleryMetaHtml(r, scoreVal){
   var bits = [];
   if(galleryShowNames && r.studentName) bits.push('<span class="gallery-name">'+escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName)+'</span>');
@@ -726,9 +785,10 @@ function screenGallery(){
     galleryData.criteria.map(function(c){ return '<option value="'+escapeAttr(c.key)+'"'+(gallerySort===c.key?' selected':'')+'>'+escapeHtml(c.label)+'</option>'; }).join('');
   var cards = rows.map(function(r, i){
     var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
-    return '<div class="gallery-card" data-idx="'+i+'">' +
+    var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
+    return '<div class="gallery-card" data-idx="'+i+'" style="border-left-color:'+aColor+'">' +
       '<div class="gallery-img">'+galleryImageHtml(r)+'</div>' +
-      '<div class="gallery-meta">'+galleryMetaHtml(r, scoreVal)+'</div>' +
+      '<div class="gallery-meta"><span class="gallery-assignment-chip" style="background:'+aColor+'">'+escapeHtml(r.assignment||'未分類')+'</span>'+galleryMetaHtml(r, scoreVal)+'</div>' +
     '</div>';
   }).join('');
   var bodyHtml;
@@ -785,15 +845,30 @@ function slideshowHtml(){
   var idx = ((slideshowIndex % rows.length) + rows.length) % rows.length;
   var r = rows[idx];
   var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
+  var scale = getSlideFontScale();
+  var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
+  var showRadar = galleryShowScores && galleryData.criteria.some(function(c){ return r.perCrit[c.key]!=null; });
   return (
-    '<div class="slideshow-overlay">' +
+    '<div class="slideshow-overlay" style="--slide-scale:'+scale+'">' +
       '<button type="button" class="slide-close" id="slideClose" aria-label="關閉">&times;</button>' +
-      '<div class="slide-stage">'+galleryImageHtml(r)+'</div>' +
-      '<div class="slide-meta">'+galleryMetaHtml(r, scoreVal)+'<span class="slide-pos">'+(idx+1)+' / '+rows.length+'</span></div>' +
+      '<div class="slide-body">' +
+        '<div class="slide-stage">'+galleryImageHtml(r)+'</div>' +
+        (showRadar ? '<div class="slide-radar">'+radarChartSvg(galleryData.criteria, r.perCrit, 320, scale)+'</div>' : '') +
+      '</div>' +
+      '<div class="slide-meta">' +
+        '<span class="gallery-assignment-chip" style="background:'+aColor+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
+        galleryMetaHtml(r, scoreVal) +
+        '<span class="slide-pos">'+(idx+1)+' / '+rows.length+'</span>' +
+      '</div>' +
       '<div class="slide-controls">' +
         '<button type="button" class="btn btn-accent" id="slidePrev">上一張</button>' +
         '<button type="button" class="btn btn-primary" id="slidePlayPause">'+(slideshowPlaying?'暫停':'播放')+'</button>' +
         '<button type="button" class="btn btn-accent" id="slideNext">下一張</button>' +
+      '</div>' +
+      '<div class="slide-controls">' +
+        '<button type="button" class="btn btn-accent" data-slide-font="-1">字體 A－</button>' +
+        '<span class="hint" style="color:#fff;align-self:center;min-width:3.5em;text-align:center">'+Math.round(scale*100)+'%</span>' +
+        '<button type="button" class="btn btn-accent" data-slide-font="1">字體 A＋</button>' +
       '</div>' +
     '</div>'
   );
@@ -1930,6 +2005,8 @@ function attachHandlers(){
       slideshowPlaying = false; enterFullscreen(); render(); return;
     }
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
+    var fontBtn = e.target.closest('[data-slide-font]');
+    if(fontBtn){ handleSlideFontScale(parseInt(fontBtn.getAttribute('data-slide-font'),10)*0.1); return; }
     if(e.target.closest('#slidePrev')){ slideshowIndex = (slideshowIndex||0) - 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
     if(e.target.closest('#slideNext')){ slideshowIndex = (slideshowIndex||0) + 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
     if(e.target.closest('#slidePlayPause')){
