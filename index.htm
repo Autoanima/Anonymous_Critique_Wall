@@ -882,6 +882,8 @@ function patchEquipmentDisplay(){
   if(teacherControlsSlot) teacherControlsSlot.innerHTML = equipStartPauseButtonsHtml(equipmentData);
   var teacherMiniSlot = document.getElementById('teacherEquipMiniSlot');
   if(teacherMiniSlot) teacherMiniSlot.innerHTML = teacherEquipMiniHtml(equipmentData);
+  var durationSlot = document.getElementById('equipDurationQuickSlot');
+  if(durationSlot && !isEditingFormField()) durationSlot.innerHTML = equipDurationQuickHtml(equipmentData);
   var appEl = document.getElementById('app');
   var existingFloat = document.getElementById('floatPauseBtn');
   var wantFloat = floatingPauseHtml();
@@ -1140,6 +1142,14 @@ function teacherEquipMiniHtml(eq){
   if(!anyStarted) return '<span class="hint" style="font-size:0.75rem">尚未開始計時</span>';
   return '<span class="hint" style="font-size:0.75rem;color:var(--good)">全部組別已跑完</span>';
 }
+/**
+ * 每人使用時間的快速設定，放在標題「教師模式」旁邊，改了直接存檔（change 事件），
+ * 不用另外按儲存按鈕——這裡空間小，多一個按鈕反而擠。
+ */
+function equipDurationQuickHtml(eq){
+  var minutes = eq ? eq.perPersonMinutes : 6;
+  return '<label class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:3px;margin-left:8px">每人<input type="number" min="1" max="60" id="equipDurationQuick" value="'+minutes+'" style="width:40px;padding:1px 3px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-size:0.75rem">分</label>';
+}
 /** 開始/暫停全班計時的按鈕，跟下面的跳轉連結收在同一橫排裡，字盡量簡短。 */
 function equipStartPauseButtonsHtml(eq){
   var paused = !!(eq && eq.pausedAt);
@@ -1178,8 +1188,7 @@ function equipmentAdminHtml(){
         '<hr class="divider">' +
         (groupsHtml || '<p class="hint">請先儲存分組名單。</p>') +
         '<hr class="divider">' +
-        '<label class="field"><span>每人使用時間（分鐘，全班共用同一個設定）</span><input type="number" min="1" max="60" id="equip_minutes" value="'+eq.perPersonMinutes+'"></label>' +
-        '<button type="button" class="btn btn-primary" id="equipSaveDuration">儲存時間</button>' +
+        '<p class="hint">每人使用時間現在改放在最上面「教師模式」旁邊，隨時可以直接改，不用來這裡設定。</p>' +
         '<hr class="divider">' +
         '<button type="button" class="btn btn-accent" id="equipBuildOrder" style="width:100%">重新排定所有組別的順序（隨機，會把計時歸零）</button>' +
       '</div>' +
@@ -1225,8 +1234,9 @@ function handleEquipSaveAttendance(){
 function handleEquipDrawLeaderFor(groupName){
   handleEquipAction('equipmentDrawLeader', { groupName: groupName });
 }
-function handleEquipSaveDuration(){
-  var minutes = parseInt(document.getElementById('equip_minutes').value,10) || 6;
+function handleEquipQuickDuration(input){
+  var minutes = Math.max(1, Math.min(60, parseInt(input.value,10) || 6));
+  input.value = minutes;
   handleEquipAction('equipmentSetDuration', { minutes: minutes });
 }
 function handleEquipBuildOrder(){
@@ -1474,7 +1484,9 @@ function navHtml(role){
     // 是 sticky 的——往下滑頁面時會一直貼在最上面，不用滑回頂端才能點。
     return '<header class="topbar">' +
       '<div class="topbar-top">' +
-        '<div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span></div>' +
+        '<div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span>' +
+          '<span id="equipDurationQuickSlot">' + equipDurationQuickHtml(equipmentData) + '</span>' +
+        '</div>' +
         '<div id="teacherEquipMiniSlot">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
       '</div>' +
       '<nav class="tabs" style="flex-wrap:wrap">' +
@@ -1959,12 +1971,12 @@ function attachHandlers(){
     if(e.target.closest('#equipSaveAttendance')){ handleEquipSaveAttendance(); return; }
     var drawBtn = e.target.closest('.equip-draw-leader');
     if(drawBtn){ handleEquipDrawLeaderFor(drawBtn.getAttribute('data-group')); return; }
-    if(e.target.closest('#equipSaveDuration')){ handleEquipSaveDuration(); return; }
     if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
     if(e.target.closest('#equipStart')){ handleEquipStart(); return; }
     if(e.target.closest('#equipPauseToggle') || e.target.closest('#floatPauseBtn')){ handleEquipPauseToggle(); return; }
   };
   root.onchange = function(e){
+    if(e.target.id==='equipDurationQuick'){ handleEquipQuickDuration(e.target); return; }
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
     if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
     if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; render(); return; }
