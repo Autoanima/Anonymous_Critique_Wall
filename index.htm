@@ -97,6 +97,10 @@ button,input,textarea{font-family:inherit;}
 .mine-item{display:flex;align-items:center;gap:10px;}
 .mine-thumb{width:44px;height:44px;border-radius:8px;object-fit:cover;background:var(--surface-2);border:1px solid var(--line);flex-shrink:0;}
 .mine-thumb-empty{display:inline-block;}
+.thumb-zoomable{cursor:zoom-in;}
+.lightbox-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.92);z-index:65;display:flex;align-items:center;justify-content:center;padding:24px;}
+.lightbox-overlay img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;}
+.lightbox-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
 .mine-info{flex:1;min-width:0;}
 .mine-del{border:1px solid var(--low);background:none;color:var(--low);border-radius:999px;padding:6px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;flex-shrink:0;}
 
@@ -235,6 +239,7 @@ var gallerySort = 'overall';
 var galleryShowNames = false;
 var galleryShowScores = false;
 var galleryAssignment = null; // null = 還沒選，選過之後固定成某個作業名稱或 '' (全部)
+var lightboxSrc = null; // 點小縮圖放大看清楚用的，跟播放展示的全螢幕輪播是分開的功能
 var slideshowIndex = null;
 var slideshowPlaying = true;
 var slideshowTimer = null;
@@ -457,7 +462,7 @@ function checklistHtml(){
     }
     return subsForA.map(function(s){
       var embed = toEmbed(s.driveLink);
-      var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+      var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
       return '<li class="mine-item">' + thumb +
         '<span class="mine-info">'+escapeHtml(a||'（未分類）')+'：<span class="code">'+escapeHtml(s.workCode)+'</span>'+escapeHtml(s.title||'')+'</span>' +
         '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>' +
@@ -640,7 +645,7 @@ function galleryTableHtml(rows){
       return '<td class="num">'+(galleryShowScores ? (v==null?'—':v.toFixed(1)) : '—')+'</td>';
     }).join('');
     var embed = toEmbed(r.driveLink);
-    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
     var nameCell = (galleryShowNames && r.studentName) ? escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName) : '—';
     return '<tr>' +
       '<td class="num">'+(i+1)+'</td>' +
@@ -937,6 +942,16 @@ function floatingPauseHtml(){
   var paused = !!equipmentData.pausedAt;
   return '<button type="button" id="floatPauseBtn" class="float-pause-btn">'+(paused?'▶ 繼續全班計時':'⏸ 暫停全班計時')+'</button>';
 }
+/** 點小縮圖時放大看清楚，跟作品牆的全螢幕輪播展示是兩回事，這裡單純只是放大單張圖片。 */
+function lightboxHtml(){
+  if(!lightboxSrc) return '';
+  return (
+    '<div class="lightbox-overlay" id="lightboxOverlay">' +
+      '<button type="button" class="lightbox-close" id="lightboxClose" aria-label="關閉">&times;</button>' +
+      '<img src="'+escapeAttr(lightboxSrc)+'" alt="放大預覽">' +
+    '</div>'
+  );
+}
 function handleEquipAction(action, extra){
   var payload = Object.assign({ passcode: teacherAuthPasscode() }, extra || {});
   return apiGet(action, payload).then(function(res){
@@ -996,7 +1011,7 @@ function screenTeacher(){
       return '<td class="num">'+(v==null?'—':v.toFixed(1))+'</td>';
     }).join('');
     var embed = toEmbed(r.driveLink);
-    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
     return '<tr>' +
       '<td class="num">'+(i+1)+'</td>' +
       '<td>'+thumb+'</td>' +
@@ -1103,7 +1118,8 @@ function render(){
       '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button></footer>' +
     '</div>' +
     slideshowHtml() +
-    floatingPauseHtml();
+    floatingPauseHtml() +
+    lightboxHtml();
   document.getElementById('app').innerHTML = html;
   attachHandlers();
 }
@@ -1396,6 +1412,10 @@ function handleDownloadBundle(){
 function attachHandlers(){
   var root = document.getElementById('app');
   root.onclick = function(e){
+    if(e.target.closest('#lightboxClose')){ lightboxSrc = null; render(); return; }
+    if(e.target.id==='lightboxOverlay'){ lightboxSrc = null; render(); return; }
+    var zoomThumb = e.target.closest('.thumb-zoomable');
+    if(zoomThumb){ lightboxSrc = zoomThumb.getAttribute('data-full') || zoomThumb.src; render(); return; }
     var navBtn = e.target.closest('[data-nav]');
     if(navBtn){ goTo(navBtn.getAttribute('data-nav')); return; }
     var dot = e.target.closest('.score-dot');
