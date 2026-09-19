@@ -215,6 +215,9 @@ var TITLE = '匿名評圖牆';
 var MAX_ORIGINAL_BYTES = 15 * 1024 * 1024; // 15MB 原始檔案上限
 var RESIZE_MAX_DIM = 1600;
 var RESIZE_QUALITY = 0.82;
+// 「快速切換身分」預設帶兩組、每組三人，方便老師一個人測試分組相關的功能（例如器材輪值）；
+// 這份清單跟開關都只存在老師自己這台裝置的 localStorage，不會同步到學生看到的資料庫。
+var DEFAULT_QUICK_IDENTITY_TEXT = '第一組\n01 陳大文\n02 林小華\n03 黃美玲\n\n第二組\n04 張志豪\n05 吳佳蓉\n06 劉建宏';
 
 // ---------- API 連線位址（不用改原始碼，改在「連接設定」畫面貼上即可） ----------
 function getApiUrl(){
@@ -406,6 +409,35 @@ function identityBadgeHtml(){
   if(!hasIdentity()) return '';
   return '<button type="button" class="identity-badge" data-nav="home">'+escapeHtml(getMySeat())+'號 '+escapeHtml(getMyName())+'</button>';
 }
+/**
+ * 老師自己測試用的「快速切換身分」，預設隱藏，要在教師專區把開關打開才會在首頁出現，
+ * 而且開關跟清單都只存在這台裝置的 localStorage，不會透過資料庫同步給學生看到。
+ */
+function getQuickIdentityText(){
+  var v = localStorage.getItem('crit.quickIdentityGroups');
+  return v == null ? DEFAULT_QUICK_IDENTITY_TEXT : v;
+}
+function quickIdentitySwitcherHtml(){
+  if(localStorage.getItem('crit.quickIdentityEnabled') !== '1') return '';
+  var groups = parseGroupsText(getQuickIdentityText());
+  if(!groups.length) return '';
+  return (
+    '<div class="card">' +
+      '<h2 class="screen-title" style="font-size:1rem">快速切換身分（測試用，只有你看得到）</h2>' +
+      groups.map(function(g){
+        return '<div class="quick-id-group">' +
+          '<p class="hint" style="margin:6px 0 4px">'+escapeHtml(g.name)+'</p>' +
+          '<div class="cta-row" style="flex-wrap:wrap">' +
+            g.members.map(function(m){
+              var isCurrent = normSeat(m.seat)===normSeat(getMySeat()) && normName(m.name)===normName(getMyName());
+              return '<button type="button" class="btn '+(isCurrent?'btn-primary':'btn-accent')+'" data-quick-seat="'+escapeAttr(m.seat)+'" data-quick-name="'+escapeAttr(m.name)+'">'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+'</button>';
+            }).join('') +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>'
+  );
+}
 
 // ---------- 連接設定 ----------
 function connectionSectionHtml(){
@@ -430,15 +462,17 @@ function screenConnect(){
 
 function screenHome(){
   var identityHtml = identitySectionHtml();
+  var quickHtml = quickIdentitySwitcherHtml();
   var setupHint = !apiUrl ? '<p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址。</p>' : '';
   if(!apiUrl){
-    return identityHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="lede">具名交作品，匿名互評分數。</p>'+setupHint+'</section>';
+    return identityHtml + quickHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="lede">具名交作品，匿名互評分數。</p>'+setupHint+'</section>';
   }
   if(!homeStats){
-    return identityHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="hint">載入中...</p></section>';
+    return identityHtml + quickHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="hint">載入中...</p></section>';
   }
   return (
     identityHtml +
+    quickHtml +
     '<section class="hero">' +
       '<h1>匿名評圖牆</h1>' +
       '<p class="lede">具名交作品，匿名互評分數。老師指定的題目由同學打 1～5 分，全部完成後自動算出平均分數與排名。</p>' +
@@ -1132,6 +1166,21 @@ function screenTeacher(){
       '<hr class="divider">' +
       '<p class="hint" style="margin-bottom:8px">資料庫連接</p>' +
       connectionSectionHtml() +
+      '<hr class="divider">' +
+      '<div class="form">' +
+        '<h3 class="screen-title" style="font-size:0.95rem">快速切換身分（只有你自己看得到）</h3>' +
+        '<p class="hint">這組設定只存在你這台裝置，不會同步進資料庫、學生也看不到，方便你一個人測試時快速切換不同身分。</p>' +
+        '<label class="toggle-row"><input type="checkbox" id="quickIdentityEnabled" '+(localStorage.getItem('crit.quickIdentityEnabled')==='1'?'checked':'')+'> 在首頁顯示「快速切換身分」</label>' +
+        '<label class="field"><span>身分清單（格式跟器材分組一樣：第一行組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="quickIdentityGroups" style="min-height:120px">'+escapeHtml(getQuickIdentityText())+'</textarea></label>' +
+        '<button type="button" class="btn btn-accent" id="saveQuickIdentity">儲存（只存在這台裝置）</button>' +
+      '</div>' +
+      '<hr class="divider">' +
+      '<div class="card" style="border-color:var(--low)">' +
+        '<h3 class="screen-title" style="font-size:0.95rem;color:var(--low)">危險區：一鍵還原資料</h3>' +
+        '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材輪值目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
+        '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
+        '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
+      '</div>' +
     '</details>';
   return (
     '<h1 class="screen-title">教師總表</h1>' +
@@ -1400,6 +1449,35 @@ function handleSaveConfig(form){
     alert('儲存失敗：'+e.message+'，請再試一次。');
   });
 }
+/**
+ * 危險操作：永久刪除所有作品和評分。這裡故意做兩層確認——
+ * 除了教師密語本身之外，還要在畫面上「再打一次密語」才會送出，
+ * 加上一個瀏覽器原生的 confirm() 對話框，避免誤觸。
+ */
+function handleResetAllData(){
+  var input = document.getElementById('reset_confirm_pass');
+  var typed = input ? input.value.trim() : '';
+  var authPass = teacherAuthPasscode();
+  if(!typed){ alert('請在上面欄位再輸入一次教師密語，確認要執行這個動作。'); return; }
+  if(typed !== authPass){ alert('密語不對，為了安全沒有執行。'); return; }
+  if(!confirm('確定要永久刪除全部作品和評分嗎？這個動作沒辦法復原！')) return;
+  var btn = document.getElementById('resetAllDataBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '處理中...'; }
+  apiGet('resetAllData', { passcode: authPass, confirmPasscode: typed }).then(function(res){
+    if(!res.ok){
+      alert('還原失敗：'+(res.error||'unknown'));
+      if(btn){ btn.disabled = false; btn.textContent = '永久刪除所有作品與評分，還原成初始狀態'; }
+      return;
+    }
+    setToast('success','已經還原成初始狀態，所有作品和評分都清空了。');
+    if(input) input.value = '';
+    loadTeacherView();
+    if(equipmentData) loadEquipment();
+  }).catch(function(e){
+    if(btn){ btn.disabled = false; btn.textContent = '永久刪除所有作品與評分，還原成初始狀態'; }
+    alert('還原失敗：'+e.message);
+  });
+}
 function csvCell(v){
   v = String(v==null?'':v);
   if(/[",\n]/.test(v)) v = '"'+v.replace(/"/g,'""')+'"';
@@ -1523,6 +1601,15 @@ function attachHandlers(){
       goTo(getRole());
       return;
     }
+    var quickBtn = e.target.closest('[data-quick-seat]');
+    if(quickBtn){
+      setMySeat(quickBtn.getAttribute('data-quick-seat'));
+      setMyName(quickBtn.getAttribute('data-quick-name'));
+      identityEditing = false;
+      setToast('success','已切換身分');
+      render();
+      return;
+    }
     if(e.target.closest('#editIdentity')){ identityEditing = true; render(); return; }
     if(e.target.closest('#exportCsv')){ handleExportCsv(); return; }
     if(e.target.closest('#refreshData')){ loadTeacherView(); return; }
@@ -1535,6 +1622,16 @@ function attachHandlers(){
       return;
     }
     if(e.target.closest('#teacherConfigSummary')){ teacherConfigOpen = !teacherConfigOpen; return; }
+    if(e.target.closest('#saveQuickIdentity')){
+      var enabled = document.getElementById('quickIdentityEnabled').checked;
+      var groupsText = document.getElementById('quickIdentityGroups').value;
+      localStorage.setItem('crit.quickIdentityEnabled', enabled ? '1' : '0');
+      localStorage.setItem('crit.quickIdentityGroups', groupsText);
+      setToast('success','已儲存（只存在這台裝置）');
+      render();
+      return;
+    }
+    if(e.target.closest('#resetAllDataBtn')){ handleResetAllData(); return; }
     if(e.target.closest('#equipmentAdminSummary')){ equipmentAdminOpen = !equipmentAdminOpen; return; }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
