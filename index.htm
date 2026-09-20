@@ -132,6 +132,7 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .toast{border-radius:8px;padding:10px 14px;font-size:0.9rem;}
 .toast-success{background:var(--accent-soft);color:var(--accent-strong);}
 .toast-error{background:var(--low-soft);color:var(--low);}
+.toast-info{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);}
 
 .table-wrap{overflow-x:auto;padding:0;}
 .grade-table{border-collapse:collapse;width:100%;font-size:0.85rem;min-width:620px;}
@@ -140,7 +141,25 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .grade-table td.num{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;}
 .grade-table td.mono{font-family:'JetBrains Mono',monospace;}
 .grade-table td.strong{font-weight:700;color:var(--accent-strong);}
-.grade-table tbody tr:first-child td{background:var(--accent-soft);}
+.grade-table th.th-sort{cursor:pointer;user-select:none;}
+.grade-table th.th-sort:hover{color:var(--ink);}
+.grade-table th.th-sort-active{color:var(--accent-strong);}
+.grade-table tbody tr.tr-flag td{background:var(--low-soft);}
+.grade-table th.crit-th,.grade-table td.title-cell{max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* 手機橫放時盡量整張總表都塞進螢幕寬度，不用再左右滑動——欄位多的時候
+   靠縮小字級、留白跟縮圖，比欄寬硬性下限更重要，所以這裡把下限拿掉。
+   螢幕比較窄的橫向（手機）繼續把長標題／作品名稱截斷成省略號；
+   螢幕比較寬的橫向（大手機、平板）容得下，就讓標題整段換行完整顯示。 */
+@media (orientation:landscape) and (max-width:1000px){
+  .grade-table{min-width:0;font-size:0.62rem;}
+  .grade-table th,.grade-table td{padding:3px 4px;}
+  .grade-table thead th{font-size:0.58rem;}
+  .grade-table .mine-thumb{width:24px;height:24px;border-radius:5px;}
+  .grade-table th.crit-th,.grade-table td.title-cell{max-width:60px;}
+}
+@media (orientation:landscape) and (min-width:1001px){
+  .grade-table th.crit-th{white-space:normal;overflow:visible;text-overflow:clip;max-width:160px;line-height:1.3;}
+}
 
 .config-card summary{cursor:pointer;font-weight:700;padding:2px 0;}
 .config-card .form{margin-top:12px;}
@@ -181,7 +200,7 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:0.15em 0.6em;border-radius:0.4em;font-weight:700;}
 .slide-meta .gallery-score{font-size:1em;padding:0.15em 0.6em;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:calc(1.3rem * var(--slide-scale));}
-.slide-font-controls{position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:2;}
+.slide-font-controls{position:absolute;left:16px;bottom:14px;display:flex;flex-direction:row;align-items:center;gap:8px;z-index:2;}
 .slide-font-controls .btn{flex:none;width:48px;padding:10px 0;}
 .slide-controls-bottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;z-index:2;}
 /* 窄螢幕（手機）用固定字級疊層位置，避免投影用的放大字級在小螢幕上互相重疊。 */
@@ -207,11 +226,10 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .equip-order-list li.equip-active{background:var(--accent-soft);font-weight:700;}
 .equip-order-edit{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
 .equip-order-edit-row{display:flex;align-items:center;gap:8px;font-size:0.9rem;}
-.equip-order-edit-row select{margin-left:auto;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);}
 .equip-absent{opacity:0.5;text-decoration:line-through;}
 .rotation-track{position:relative;display:flex;height:64px;border-radius:10px;overflow:hidden;margin-top:12px;}
 .rotation-segment{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;min-width:0;color:#fff;font-weight:700;position:relative;opacity:0.7;}
-.rotation-segment.rotation-seg-active{opacity:1;box-shadow:inset 0 0 0 2px rgba(255,255,255,0.85);}
+.rotation-segment.rotation-seg-active{opacity:1;box-shadow:inset 0 0 0 2px rgba(0,0,0,0.55),inset 0 0 0 4px rgba(255,255,255,0.85);}
 .rotation-segment+.rotation-segment{border-left:1px solid rgba(255,255,255,0.35);}
 .rotation-seat{white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:1.15rem;}
 .rotation-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;padding:0 4px;font-size:0.75rem;font-weight:500;}
@@ -282,16 +300,23 @@ var identityEditing = false;
 var assignmentsList = []; // 從 home/gallery/teacherFetch 回應同步過來
 var reviewAssignment = null; // null = 還沒選要評哪個作業
 var teacherAssignmentFilter = '';
+// 兩張表各自獨立的排序狀態：null 代表還沒點過任何欄位標題，用預設的座號排序。
+var teacherSortKey = null, teacherSortDir = 1;
+var reviewerSortKey = null, reviewerSortDir = 1;
 var galleryViewMode = 'grid'; // 'grid' | 'table'
 var equipmentData = null; // { roster, leader, order, perPersonMinutes, currentIndex, turnStartedAt, running }
 var equipmentTickTimer = null;
 var equipmentPollTimer = null;
-// 這組順序跟色號是照老師提供的參考圖由左到右排的（共 8 種顏色，比原本的 7 色多一個），
-// 從照片沒辦法百分之百還原色號，是盡量挑接近的顏色，如果哪個顏色看起來不夠準，
-// 之後可以再單獨微調。這裡改了名字或順序，記得 Code.gs 的 RAINBOW 陣列也要跟著改，
+// 預設鎖定，避免不小心滑到就改掉全班的計時設定；每次重新整理都會回到鎖定狀態。
+var equipDurationUnlocked = false;
+// 老師指定的固定 8 色順序（由左到右／由上到下），不提供使用者自訂顏色的功能。
+// 這裡改了名字或順序，記得 Code.gs 的 RAINBOW 陣列也要跟著改，
 // 兩邊的顏色名稱要完全對得上，不然舊資料存的名稱在這裡會找不到對應的色號。
-var RAINBOW_ORDER = ['金黃','橄欖','藍綠','靛藍','紫','綠','藍','粉'];
-var RAINBOW_COLORS = {'金黃':'#C9A227','橄欖':'#A67C3D','藍綠':'#3D9B8F','靛藍':'#3D6B7D','紫':'#6B4FA0','綠':'#4C8C4A','藍':'#3E6FB5','粉':'#B85C7C'};
+var RAINBOW_ORDER = ['紅','橙','黃','黃綠','淺藍','紫','粉紅','橄欖灰褐'];
+var RAINBOW_COLORS = {'紅':'#EE2737','橙':'#F89C08','黃':'#FFD600','黃綠':'#67CE38','淺藍':'#23B4E8','紫':'#9B56BA','粉紅':'#F9BDE1','橄欖灰褐':'#BEAC7D'};
+// 依每個底色的明暗，挑對比較清楚的文字顏色（淺色底用深字、深色底用白字），
+// 純粹是自動判斷可讀性，不是讓使用者可以調整顏色的功能。
+var RAINBOW_TEXT = {'紅':'#fff','橙':'#1a1a1a','黃':'#1a1a1a','黃綠':'#1a1a1a','淺藍':'#1a1a1a','紫':'#fff','粉紅':'#1a1a1a','橄欖灰褐':'#1a1a1a'};
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -1058,7 +1083,7 @@ function timelineHtml(state, compact){
   var order = state.order||[];
   if(!order.length) return '';
   var segs = order.map(function(p,i){
-    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+RAINBOW_COLORS[p.color]+'">' +
+    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+RAINBOW_COLORS[p.color]+';color:'+(RAINBOW_TEXT[p.color]||'#fff')+'">' +
       '<span class="rotation-seat">'+escapeHtml(stripLeadingZero(p.seat))+'號</span>' +
       '<span class="rotation-name">'+escapeHtml(p.name)+'</span>' +
     '</div>';
@@ -1255,12 +1280,15 @@ function teacherEquipMiniHtml(eq){
  */
 function equipDurationQuickHtml(eq){
   var minutes = eq ? eq.perPersonMinutes : 6;
-  var btnStyle = 'width:20px;height:20px;line-height:18px;padding:0;border-radius:5px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-size:0.85rem;cursor:pointer;';
-  return '<span class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:4px;margin-left:8px">' +
+  var unlocked = equipDurationUnlocked;
+  return '<span class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:6px;margin-left:8px">' +
     '每人' +
-    '<button type="button" class="equip-duration-btn" data-delta="-1" style="'+btnStyle+'">－</button>' +
-    '<span id="equipDurationValue" style="min-width:1.4em;text-align:center;display:inline-block;font-family:\'JetBrains Mono\',monospace">'+minutes+'</span>' +
-    '<button type="button" class="equip-duration-btn" data-delta="1" style="'+btnStyle+'">＋</button>' +
+    '<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;user-select:none">' +
+      '<input type="checkbox" id="equipDurationUnlock" '+(unlocked?'checked':'')+' style="cursor:pointer">' +
+      '<span>'+(unlocked?'🔓可調':'🔒鎖定')+'</span>' +
+    '</label>' +
+    '<input type="range" id="equipDurationSlider" min="1" max="60" step="1" value="'+minutes+'" '+(unlocked?'':'disabled')+' style="width:72px;vertical-align:middle;cursor:'+(unlocked?'pointer':'not-allowed')+'">' +
+    '<span id="equipDurationValue" style="min-width:1.6em;text-align:center;display:inline-block;font-family:\'JetBrains Mono\',monospace">'+minutes+'</span>' +
     '分' +
   '</span>';
 }
@@ -1283,8 +1311,7 @@ function equipmentAdminHtml(){
   var groupsHtml = eq.groups.map(function(g){
     var leaderSeat = leaderSeatFor(g);
     var orderRows = (g.order||[]).map(function(p,i){
-      var opts = RAINBOW_ORDER.map(function(c){ return '<option value="'+c+'"'+(p.color===c?' selected':'')+'>'+c+'</option>'; }).join('');
-      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(leaderSeat===p.seat?'（組長）':'')+'</span><select class="equip-color-select" data-group="'+escapeAttr(g.name)+'" data-index="'+i+'">'+opts+'</select></div>';
+      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(leaderSeat===p.seat?'（組長）':'')+'</span></div>';
     }).join('');
     return (
       '<div class="card" style="margin-top:10px">' +
@@ -1355,9 +1382,6 @@ function handleEquipBuildOrder(){
   if(!confirm('確定要重新隨機排定所有組別的順序嗎？目前的計時會歸零，要重新按「開始全班計時」。')) return;
   handleEquipAction('equipmentBuildOrder');
 }
-function handleEquipSetColorFor(groupName, index, color){
-  handleEquipAction('equipmentSetColor', { groupName: groupName, index: index, color: color });
-}
 function handleEquipStart(){
   handleEquipAction('equipmentStart');
 }
@@ -1384,6 +1408,39 @@ function reportsExportSectionHtml(tv, cfg){
     '</div>'
   );
 }
+function seatNumFor(seat){ var n = parseInt(String(seat==null?'':seat).replace(/\D/g,''),10); return isNaN(n) ? 0 : n; }
+/**
+ * 兩張表共用的排序邏輯：欄位標題當按鈕，第一次點某欄位用該欄位型態預設的方向
+ * （數字類分數由高到低、文字類由字母/筆畫排序由小到大），再點同一欄就反過來；
+ * 換點別的欄位就重新從那一欄的預設方向開始。沒點過任何欄位時固定用座號排序。
+ */
+function sortRows(rows, key, dir, valueFns, defaultSeatKey){
+  if(!key) return rows.slice().sort(function(a,b){ return seatNumFor(a[defaultSeatKey]) - seatNumFor(b[defaultSeatKey]); });
+  var fn = valueFns[key];
+  return rows.slice().sort(function(a,b){
+    var av = fn(a), bv = fn(b);
+    if(typeof av==='string' || typeof bv==='string'){ return dir * String(av).localeCompare(String(bv),'zh-Hant'); }
+    return dir * (av - bv);
+  });
+}
+function sortTh(label, table, key, curKey, curDir, extraClass){
+  var active = curKey===key;
+  var arrow = active ? (curDir===1?' ▲':' ▼') : '';
+  // 標題字太長會被 CSS 截斷成省略號（見 .crit-th／.title-cell），
+  // 所以順便把完整文字放進 data-full-label，點的時候用 toast 彈出來給老師看。
+  var needsFull = extraClass && (extraClass.indexOf('crit-th')>=0 || extraClass.indexOf('title-cell')>=0);
+  return '<th class="th-sort'+(extraClass?' '+extraClass:'')+(active?' th-sort-active':'')+'" data-sort-table="'+table+'" data-sort-key="'+escapeAttr(key)+'"'+(needsFull?' data-full-label="'+escapeAttr(label)+'"':'')+'>'+escapeHtml(label)+arrow+'</th>';
+}
+function handleHeaderSortClick(table, key){
+  if(table==='grade'){
+    if(teacherSortKey===key) teacherSortDir = -teacherSortDir;
+    else { teacherSortKey = key; teacherSortDir = (key==='name'||key==='assignment'||key==='title'||key==='device') ? 1 : -1; }
+  } else if(table==='reviewer'){
+    if(reviewerSortKey===key) reviewerSortDir = -reviewerSortDir;
+    else { reviewerSortKey = key; reviewerSortDir = (key==='name'||key==='submitted') ? 1 : -1; }
+  }
+  render();
+}
 function screenTeacher(){
   if(!teacherView){
     return '<h1 class="screen-title">教師專區</h1><p class="hint">載入中...</p>';
@@ -1393,35 +1450,52 @@ function screenTeacher(){
   var criteria = cfg.criteria;
   var assignments = cfg.assignments || [];
   var allRows = teacherView.rows;
+  var required = cfg.reviewsPerStudent;
   var rows = teacherAssignmentFilter ? allRows.filter(function(r){ return normAssignment(r.assignment)===normAssignment(teacherAssignmentFilter); }) : allRows;
-  var head = criteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
-  var tableRows = rows.map(function(r, i){
+  var gradeValueFns = {
+    seat: function(r){ return seatNumFor(r.studentSeat); },
+    name: function(r){ return r.studentName||''; },
+    assignment: function(r){ return r.assignment||''; },
+    title: function(r){ return r.title||''; },
+    overall: function(r){ return r.overall==null?-1:r.overall; },
+    count: function(r){ return r.count||0; },
+    device: function(r){ return r.deviceId||''; }
+  };
+  criteria.forEach(function(c){ gradeValueFns['crit:'+c.key] = function(r){ return r.perCrit[c.key]==null?-1:r.perCrit[c.key]; }; });
+  rows = sortRows(rows, teacherSortKey, teacherSortDir, gradeValueFns, 'studentSeat');
+  var head = criteria.map(function(c){ return sortTh(c.label, 'grade', 'crit:'+c.key, teacherSortKey, teacherSortDir, 'title-cell crit-th'); }).join('');
+  var tableRows = rows.map(function(r){
     var cells = criteria.map(function(c){
       var v = r.perCrit[c.key];
       return '<td class="num">'+(v==null?'—':v.toFixed(1))+'</td>';
     }).join('');
     var embed = toEmbed(r.driveLink);
     var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
-    return '<tr>' +
-      '<td class="num">'+(i+1)+'</td>' +
-      '<td>'+thumb+'</td>' +
+    return '<tr'+(r.count<required?' class="tr-flag"':'')+'>' +
       '<td class="num">'+(namesHidden ? '●' : escapeHtml(r.studentSeat))+'</td>' +
       '<td>'+(namesHidden ? '●●●' : escapeHtml(r.studentName))+'</td>' +
+      '<td>'+thumb+'</td>' +
       '<td>'+escapeHtml(r.assignment||'—')+'</td>' +
-      '<td>'+escapeHtml(r.title||'—')+'</td>' +
+      '<td class="title-cell">'+escapeHtml(r.title||'—')+'</td>' +
       cells +
       '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+'</td>' +
       '<td class="num">'+r.count+'</td>' +
       '<td class="mono" style="font-size:0.7rem;color:var(--ink-soft)">'+escapeHtml(r.deviceId||'—')+'</td>' +
     '</tr>';
   }).join('');
-
-  var required = cfg.reviewsPerStudent;
   var reviewerSection;
   if(teacherAssignmentFilter && teacherView.reviewersByAssignment){
     var reviewers = teacherView.reviewersByAssignment[teacherAssignmentFilter] || [];
+    var reviewerValueFns = {
+      seat: function(rv){ return seatNumFor(rv.seat); },
+      name: function(rv){ return rv.name||''; },
+      submitted: function(rv){ return rv.submitted?1:0; },
+      reviewCount: function(rv){ return rv.reviewCount||0; },
+      met: function(rv){ return rv.met?1:0; }
+    };
+    reviewers = sortRows(reviewers, reviewerSortKey, reviewerSortDir, reviewerValueFns, 'seat');
     var reviewerRows = reviewers.map(function(rv){
-      return '<tr>' +
+      return '<tr'+(!rv.met?' class="tr-flag"':'')+'>' +
         '<td class="num">'+(namesHidden ? '●' : escapeHtml(rv.seat))+'</td>' +
         '<td>'+(namesHidden ? '●●●' : escapeHtml(rv.name))+'</td>' +
         '<td>'+(rv.submitted ? '<span style="color:var(--good)">已交</span>' : '<span class="hint">未交作品</span>')+'</td>' +
@@ -1433,9 +1507,13 @@ function screenTeacher(){
     }).join('');
     reviewerSection =
       '<h2 class="screen-title" style="font-size:1.1rem">評分進度：'+escapeHtml(teacherAssignmentFilter)+'</h2>' +
-      '<p class="hint">每人要評 '+required+' 件，這裡可以看誰還沒評完、誰額外多評了幾件（不同作業分開計算）。</p>' +
+      '<p class="hint">每人要評 '+required+' 件，這裡可以看誰還沒評完、誰額外多評了幾件（不同作業分開計算）；還沒達標的那一列會用顏色標出來。</p>' +
       '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-        '<th>座號</th><th>姓名</th><th>已交作品</th><th>已評分數</th><th>狀態</th>' +
+        sortTh('座號','reviewer','seat',reviewerSortKey,reviewerSortDir) +
+        sortTh('姓名','reviewer','name',reviewerSortKey,reviewerSortDir) +
+        sortTh('已交作品','reviewer','submitted',reviewerSortKey,reviewerSortDir) +
+        sortTh('已評分數','reviewer','reviewCount',reviewerSortKey,reviewerSortDir) +
+        sortTh('狀態','reviewer','met',reviewerSortKey,reviewerSortDir) +
       '</tr></thead><tbody>' + (reviewerRows || '<tr><td colspan="99" class="hint">目前還沒有人交作品或評分。</td></tr>') + '</tbody></table></div>';
   } else {
     reviewerSection =
@@ -1491,13 +1569,13 @@ function screenTeacher(){
     '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-attendance">今日點名</h2>' +
     equipAttendanceHtml(equipmentData) +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">總表</h2>' +
-    '<div class="stat-row">' +
-      statTile(teacherView.submissionCount, '件作品') +
-      statTile(teacherView.reviewCount, '筆評分') +
-      statTile(allRows.filter(function(r){ return r.count>0; }).length, '已有分數') +
-    '</div>' +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">作業繳交狀況</h2>' +
     '<div class="card"><label class="field" style="margin:0"><span>篩選作業</span><select id="teacherAssignmentFilter">'+assignmentFilterOptions+'</select></label></div>' +
+    '<div class="stat-row">' +
+      statTile(rows.length, '件作品') +
+      statTile(rows.reduce(function(sum,r){ return sum + (r.count||0); }, 0), '筆評分') +
+      statTile(rows.filter(function(r){ return r.count>0; }).length, '已有分數') +
+    '</div>' +
     '<div class="cta-row">' +
       '<button class="btn btn-accent" id="refreshData">重新整理資料</button>' +
       '<button class="btn btn-accent" id="toggleNames">'+(namesHidden?'顯示姓名':'隱藏姓名')+'</button>' +
@@ -1505,7 +1583,15 @@ function screenTeacher(){
     '</div>' +
     '<label class="toggle-row"><input type="checkbox" id="teacherAutoRefreshToggle" '+(autoRefreshOn?'checked':'')+'> 自動重新整理總表（每 20 秒，正在打字時不會被蓋掉）</label>' +
     '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-      '<th>排名</th><th>圖片</th><th>座號</th><th>姓名</th><th>作業</th><th>作品名稱</th>' + head + '<th>總平均</th><th>份數</th><th>裝置代碼</th>' +
+      sortTh('座號','grade','seat',teacherSortKey,teacherSortDir) +
+      sortTh('姓名','grade','name',teacherSortKey,teacherSortDir) +
+      '<th>圖片</th>' +
+      sortTh('作業','grade','assignment',teacherSortKey,teacherSortDir) +
+      sortTh('作品名稱','grade','title',teacherSortKey,teacherSortDir,'title-cell') +
+      head +
+      sortTh('總平均','grade','overall',teacherSortKey,teacherSortDir) +
+      sortTh('份數','grade','count',teacherSortKey,teacherSortDir) +
+      sortTh('裝置代碼','grade','device',teacherSortKey,teacherSortDir) +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
     '<h2 class="screen-title" style="font-size:1.1rem">評分未達標／繳交狀況報表</h2>' +
@@ -1866,6 +1952,18 @@ function handleExportCsv(){
   if(!teacherView) return;
   var criteria = teacherView.config.criteria;
   var rows = teacherAssignmentFilter ? teacherView.rows.filter(function(r){ return normAssignment(r.assignment)===normAssignment(teacherAssignmentFilter); }) : teacherView.rows;
+  var csvValueFns = {
+    seat: function(r){ return seatNumFor(r.studentSeat); },
+    name: function(r){ return r.studentName||''; },
+    assignment: function(r){ return r.assignment||''; },
+    title: function(r){ return r.title||''; },
+    overall: function(r){ return r.overall==null?-1:r.overall; },
+    count: function(r){ return r.count||0; },
+    device: function(r){ return r.deviceId||''; }
+  };
+  criteria.forEach(function(c){ csvValueFns['crit:'+c.key] = function(r){ return r.perCrit[c.key]==null?-1:r.perCrit[c.key]; }; });
+  rows = sortRows(rows, teacherSortKey, teacherSortDir, csvValueFns, 'studentSeat');
+  // 匯出的欄位順序跟畫面上目前的排序、欄位順序保持一致，方便直接對照。
   var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數','裝置代碼']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
@@ -1990,6 +2088,13 @@ function attachHandlers(){
       return;
     }
     if(e.target.closest('#editIdentity')){ identityEditing = true; render(); return; }
+    var sortHeaderEl = e.target.closest('[data-sort-key]');
+    if(sortHeaderEl){
+      var fullLabel = sortHeaderEl.getAttribute('data-full-label');
+      if(fullLabel) setToast('info', fullLabel);
+      handleHeaderSortClick(sortHeaderEl.getAttribute('data-sort-table'), sortHeaderEl.getAttribute('data-sort-key'));
+      return;
+    }
     if(e.target.closest('#exportCsv')){ handleExportCsv(); return; }
     if(e.target.closest('#refreshData')){ loadTeacherView(); return; }
     if(e.target.closest('#saveConn')){ handleSaveConnection(document.getElementById('app')); return; }
@@ -2042,8 +2147,6 @@ function attachHandlers(){
     if(e.target.closest('#equipSaveGroups')){ handleEquipSaveGroups(); return; }
     if(e.target.closest('#equipSaveAttendance')){ handleEquipSaveAttendance(); return; }
     if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
-    var durBtn = e.target.closest('.equip-duration-btn');
-    if(durBtn){ handleEquipQuickDuration(parseInt(durBtn.getAttribute('data-delta'),10)); return; }
     if(e.target.closest('#equipStart')){ handleEquipStart(); return; }
     if(e.target.closest('#equipPauseToggle') || e.target.closest('#floatPauseBtn')){ handleEquipPauseToggle(); return; }
   };
@@ -2055,8 +2158,15 @@ function attachHandlers(){
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; galleryScoresTouched = true; render(); return; }
     if(e.target.id==='teacherAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
     if(e.target.id==='teacherAutoRefreshToggle'){ setTeacherAutoRefresh(e.target.checked); return; }
-    if(e.target.classList && e.target.classList.contains('equip-color-select')){
-      handleEquipSetColorFor(e.target.getAttribute('data-group'), parseInt(e.target.getAttribute('data-index'),10), e.target.value);
+    if(e.target.id==='equipDurationUnlock'){ equipDurationUnlocked = e.target.checked; render(); return; }
+    if(e.target.id==='equipDurationSlider'){ handleEquipQuickDuration(parseInt(e.target.value,10) - (equipmentData?equipmentData.perPersonMinutes:6)); return; }
+  };
+  // 拖曳滑桿的當下先只更新畫面上的數字，不要每移動一點就打一次 API，
+  // 真正送出存檔是放開滑桿時觸發的 change 事件（上面 root.onchange）。
+  root.oninput = function(e){
+    if(e.target.id==='equipDurationSlider'){
+      var v = document.getElementById('equipDurationValue');
+      if(v) v.textContent = e.target.value;
       return;
     }
   };
