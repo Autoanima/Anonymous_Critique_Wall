@@ -1785,7 +1785,8 @@ function screenTeacher(){
     '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-attendance">今日點名</h2>' +
     equipAttendanceHtml(equipmentData) +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">作業繳交狀況</h2>' +
+    equipmentAdminHtml() +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">評分總表</h2>' +
     assignmentSwiperHtml +
     '<div class="stat-row">' +
       statTile(rows.length, '件作品') +
@@ -1815,7 +1816,6 @@ function screenTeacher(){
     reportsExportSectionHtml(teacherView, cfg) +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-settings">教師設定</h2>' +
     configHtml +
-    equipmentAdminHtml() +
     dangerZoneHtml
   );
 }
