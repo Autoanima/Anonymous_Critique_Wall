@@ -594,7 +594,7 @@ function screenConnect(){
 
 /**
  * 首頁「匿名評圖牆」標題上面的作業要求說明：可以切換不同作業看各自的要求文字
- * （文字內容由老師在教師設定裡填寫），下面附一個「交作業」連結直接跳去交作品頁面
+ * （文字內容由老師在教師設定裡填寫），下面附一個「交作品」連結直接跳去交作品頁面
  * 並帶入這份作業，不用自己再選一次。
  */
 function homeAssignmentDescriptionHtml(){
@@ -614,7 +614,7 @@ function homeAssignmentDescriptionHtml(){
       '<p class="hint">作業要求說明</p>' +
       '<div class="assignment-chip-scroll">'+chips+'</div>' +
       '<p style="margin-top:10px;line-height:1.7">'+descHtml+'</p>' +
-      '<button type="button" class="btn btn-primary" data-home-desc-submit="'+escapeAttr(current)+'" style="width:100%;margin-top:10px">交作業</button>' +
+      '<button type="button" class="btn btn-primary" data-home-desc-submit="'+escapeAttr(current)+'" style="width:100%;margin-top:10px">交作品</button>' +
     '</div>'
   );
 }
