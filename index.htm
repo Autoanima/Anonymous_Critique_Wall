@@ -331,6 +331,11 @@ var RAINBOW_COLORS = {'紅':'#EE2737','橙':'#F89C08','黃':'#FFD600','黃綠':'
 // 依每個底色的明暗，挑對比較清楚的文字顏色（淺色底用深字、深色底用白字），
 // 純粹是自動判斷可讀性，不是讓使用者可以調整顏色的功能。
 var RAINBOW_TEXT = {'紅':'#fff','橙':'#1a1a1a','黃':'#1a1a1a','黃綠':'#1a1a1a','淺藍':'#1a1a1a','紫':'#fff','粉紅':'#1a1a1a','橄欖灰褐':'#1a1a1a'};
+// 保護用：如果存的顏色名稱是改色盤之前留下來的舊名稱（在目前這組 8 色裡找不到），
+// 就退回用色盤第一色，不要讓畫面直接變成沒上色的白底黑字——那樣看起來像壞掉。
+// 真正的修法是重新部署最新的 Code.gs，再按一次「重新排定所有組別的順序」讓顏色全部重新產生。
+function swatchColorFor(colorName){ return RAINBOW_COLORS[colorName] || RAINBOW_COLORS[RAINBOW_ORDER[0]]; }
+function swatchTextFor(colorName){ return RAINBOW_TEXT[colorName] || RAINBOW_TEXT[RAINBOW_ORDER[0]] || '#fff'; }
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -1133,7 +1138,7 @@ function timelineHtml(state, compact){
   var order = state.order||[];
   if(!order.length) return '';
   var segs = order.map(function(p,i){
-    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+RAINBOW_COLORS[p.color]+';color:'+(RAINBOW_TEXT[p.color]||'#fff')+'">' +
+    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+swatchColorFor(p.color)+';color:'+swatchTextFor(p.color)+'">' +
       '<span class="rotation-seat">'+escapeHtml(stripLeadingZero(p.seat))+'號</span>' +
       '<span class="rotation-name">'+escapeHtml(p.name)+'</span>' +
     '</div>';
@@ -1206,10 +1211,10 @@ function screenEquipment(){
       '</div>';
   } else {
     timelineSection =
-      '<div class="card equip-current" style="border-left:8px solid '+(current?RAINBOW_COLORS[current.color]:'#999')+'">' +
+      '<div class="card equip-current" style="border-left:8px solid '+(current?swatchColorFor(current.color):'#999')+'">' +
         (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停</p>' : '') +
         '<p class="equip-turn-label">目前使用：</p>' +
-        '<p class="equip-turn-name">'+(current ? ('<span class="equip-swatch" style="background:'+RAINBOW_COLORS[current.color]+'"></span>'+escapeHtml(current.color)+'夾・'+escapeHtml(current.seat)+'號 '+escapeHtml(current.name)) : '—')+'</p>' +
+        '<p class="equip-turn-name">'+(current ? ('<span class="equip-swatch" style="background:'+swatchColorFor(current.color)+'"></span>'+escapeHtml(current.color)+'夾・'+escapeHtml(current.seat)+'號 '+escapeHtml(current.name)) : '—')+'</p>' +
         '<p class="equip-timer">'+fmtTime(state.remainingMs)+'</p>' +
         '<p class="hint">下一位：'+(next ? (escapeHtml(next.color)+'夾・'+escapeHtml(next.seat)+'號 '+escapeHtml(next.name)) : '—')+'</p>' +
         timelineHtml(state) +
@@ -1252,7 +1257,7 @@ function teacherEquipmentOverviewHtml(eq){
         timelineHtml(state, true);
     }
     return (
-      '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+RAINBOW_COLORS[current.color]:'')+'">' +
+      '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+swatchColorFor(current.color):'')+'">' +
         '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml((leaderSeatFor(g))?(leaderSeatFor(g)+' 號'):'（尚未排定順序）')+'</h3>' +
         body +
       '</div>'
@@ -1363,7 +1368,7 @@ function equipmentAdminHtml(){
   var groupsHtml = eq.groups.map(function(g){
     var leaderSeat = leaderSeatFor(g);
     var orderRows = (g.order||[]).map(function(p,i){
-      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+RAINBOW_COLORS[p.color]+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(leaderSeat===p.seat?'（組長）':'')+'</span></div>';
+      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+swatchColorFor(p.color)+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(leaderSeat===p.seat?'（組長）':'')+'</span></div>';
     }).join('');
     return (
       '<div class="card" style="margin-top:10px">' +
