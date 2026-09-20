@@ -104,6 +104,11 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .lightbox-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.92);z-index:65;display:flex;align-items:center;justify-content:center;padding:24px;}
 .lightbox-overlay img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;}
 .lightbox-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;}
+.submit-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.72);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;}
+.submit-overlay-card{background:var(--surface);border-radius:14px;padding:26px 22px;max-width:320px;text-align:center;box-shadow:0 12px 32px rgba(0,0,0,0.35);}
+.submit-overlay-msg{font-weight:700;font-size:1.05rem;margin:0 0 8px;}
+.spinner{width:36px;height:36px;border:4px solid var(--line);border-top-color:var(--accent);border-radius:50%;margin:0 auto 14px;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
 .mine-info{flex:1;min-width:0;}
 .mine-del{border:1px solid var(--low);background:none;color:var(--low);border-radius:999px;padding:6px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;flex-shrink:0;}
 .mine-item-clickable{cursor:pointer;border-radius:8px;padding:6px;margin:-6px;}
@@ -144,8 +149,10 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .grade-table th.th-sort{cursor:pointer;user-select:none;}
 .grade-table th.th-sort:hover{color:var(--ink);}
 .grade-table th.th-sort-active{color:var(--accent-strong);}
-.grade-table tbody tr.tr-flag td{background:var(--low-soft);}
 .grade-table th.crit-th,.grade-table td.title-cell{max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.assignment-swiper{display:flex;align-items:center;justify-content:space-between;gap:12px;touch-action:pan-y;user-select:none;}
+.assignment-swipe-btn{background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:8px;width:40px;height:40px;font-size:1.3rem;line-height:1;cursor:pointer;flex:none;}
+.assignment-swipe-label{flex:1;text-align:center;font-weight:700;font-size:1.05rem;}
 /* 手機橫放時盡量整張總表都塞進螢幕寬度，不用再左右滑動——欄位多的時候
    靠縮小字級、留白跟縮圖，比欄寬硬性下限更重要，所以這裡把下限拿掉。
    螢幕比較窄的橫向（手機）繼續把長標題／作品名稱截斷成省略號；
@@ -202,7 +209,8 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:calc(1.3rem * var(--slide-scale));}
 .slide-font-controls{position:absolute;left:16px;bottom:14px;display:flex;flex-direction:row;align-items:center;gap:8px;z-index:2;}
 .slide-font-controls .btn{flex:none;width:48px;padding:10px 0;}
-.slide-controls-bottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;z-index:2;}
+.slide-controls-bottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;z-index:2;}
+.slide-assignment-select{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:0.85rem;}
 /* 窄螢幕（手機）用固定字級疊層位置，避免投影用的放大字級在小螢幕上互相重疊。 */
 @media (max-width:800px){
   .slide-body{flex-direction:column;}
@@ -282,6 +290,11 @@ var mySubs = null;
 var reviewView = null;
 var teacherView = null;
 var loading = false;
+// 交作品上傳期間的全螢幕遮罩：擋住畫面其他操作，避免使用者以為卡住而亂點；
+// 點遮罩外面空白處算「取消等待」（不是真的中斷網路傳輸——表單已經送出去了，
+// 只是不繼續等結果、不擋畫面，作品如果其實有送到，稍後重新整理還是看得到）。
+var submittingWork = false;
+var submitCancelled = false;
 var currentScores = {};
 var pendingImage = null; // { dataUrl, base64, mime }
 var submitTargetAssignment = null; // 點了「作業繳交狀況」裡哪一個項目，交作品的表單才會在底下展開
@@ -300,6 +313,7 @@ var identityEditing = false;
 var assignmentsList = []; // 從 home/gallery/teacherFetch 回應同步過來
 var reviewAssignment = null; // null = 還沒選要評哪個作業
 var teacherAssignmentFilter = '';
+var assignmentSwipeStartX = null;
 // 兩張表各自獨立的排序狀態：null 代表還沒點過任何欄位標題，用預設的座號排序。
 var teacherSortKey = null, teacherSortDir = 1;
 var reviewerSortKey = null, reviewerSortDir = 1;
@@ -728,8 +742,12 @@ function sortedGalleryRows(){
   });
   return rows;
 }
-/** 依作業在清單裡的位置，從器材輪值那組 8 色色盤挑一個固定顏色，讓同一份作業在整個作品牆裡顏色都一樣。 */
-function assignmentColorFor(assignments, a){
+// 作品牆的作業底色故意跟器材輪值那組彩色色盤完全分開，用無彩色的灰階——
+// 兩邊都用彩色的話，看到顏色會下意識想比對「這是不是器材輪值的哪一色」，
+// 容易搞混成兩件事。深淺特意拉開間距，確保鄰近的作業還是分得出來。
+var GALLERY_GRAYS = ['#2E2E2E','#4A4A4A','#666666','#828282','#9E9E9E','#BABABA','#585858','#A8A8A8'];
+var GALLERY_GRAY_TEXT = ['#fff','#fff','#fff','#fff','#1a1a1a','#1a1a1a','#fff','#1a1a1a'];
+function galleryAssignmentIndexFor(assignments, a){
   // 一定要用 normAssignment 比對，不能直接 indexOf——作業名稱如果是「01」這種
   // 看起來像數字的文字，試算表會把它存成數字 1，直接比對永遠對不起來，
   // 結果每一列都會落到「找不到、預設用第一色」，變成畫面上全部作品都同一個顏色
@@ -737,9 +755,17 @@ function assignmentColorFor(assignments, a){
   var target = normAssignment(a);
   var idx = -1;
   (assignments||[]).forEach(function(x, i){ if(idx<0 && normAssignment(x)===target) idx = i; });
-  if(idx < 0) idx = 0;
-  var name = RAINBOW_ORDER[idx % RAINBOW_ORDER.length];
-  return RAINBOW_COLORS[name];
+  return idx < 0 ? 0 : idx;
+}
+/** 依作業在清單裡的位置，從灰階色盤挑一個固定顏色，讓同一份作業在整個作品牆裡顏色都一樣。 */
+function assignmentColorFor(assignments, a){
+  var idx = galleryAssignmentIndexFor(assignments, a);
+  return GALLERY_GRAYS[idx % GALLERY_GRAYS.length];
+}
+/** 跟 assignmentColorFor 的底色配對用的文字顏色，確保淺灰底配深字、深灰底配白字。 */
+function assignmentTextColorFor(assignments, a){
+  var idx = galleryAssignmentIndexFor(assignments, a);
+  return GALLERY_GRAY_TEXT[idx % GALLERY_GRAY_TEXT.length];
 }
 /**
  * 投影時用的雷達圖，一題一軸，SVG 畫的，字體大小跟著 slideFontScale 一起放大，
@@ -805,7 +831,7 @@ function screenGallery(){
     return '<h1 class="screen-title">作品牆</h1><p class="hint">載入中...</p>';
   }
   if(galleryAssignment===null){
-    galleryAssignment = (galleryData.assignments && galleryData.assignments[0]) || '';
+    galleryAssignment = ''; // 預設顯示所有作業，不自動挑第一份
   }
   var rows = sortedGalleryRows();
   // 姓名開放是每份作業分開設定的，分數則是滿一定評分人數才自動開放——
@@ -827,9 +853,10 @@ function screenGallery(){
   var cards = rows.map(function(r, i){
     var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
     var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
+    var aText = assignmentTextColorFor(galleryData.assignments, r.assignment);
     return '<div class="gallery-card" data-idx="'+i+'" style="border-left-color:'+aColor+'">' +
       '<div class="gallery-img">'+galleryImageHtml(r)+'</div>' +
-      '<div class="gallery-meta"><span class="gallery-assignment-chip" style="background:'+aColor+'">'+escapeHtml(r.assignment||'未分類')+'</span>'+galleryMetaHtml(r, scoreVal)+'</div>' +
+      '<div class="gallery-meta"><span class="gallery-assignment-chip" style="background:'+aColor+';color:'+aText+'">'+escapeHtml(r.assignment||'未分類')+'</span>'+galleryMetaHtml(r, scoreVal)+'</div>' +
     '</div>';
   }).join('');
   var bodyHtml;
@@ -844,7 +871,7 @@ function screenGallery(){
       '<label class="field"><span>哪一份作業</span><select id="galleryAssignment">'+assignmentOptions+'</select></label>' +
       '<label class="field"><span>排序依據</span><select id="gallerySort">'+sortOptions+'</select></label>' +
       '<div class="gallery-toggles">' +
-        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（老師尚未開放）')+'</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（滿 '+(galleryData.namesRevealThreshold!=null?galleryData.namesRevealThreshold:25)+' 人評分，或老師開放這份作業，才能開啟顯示）')+'</label>' +
         '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+(scoresRevealed?'':' disabled')+'> 顯示分數'+(scoresRevealed?'':'（滿'+(scoreThreshold!=null?scoreThreshold:15)+'人評分才會自動公開）')+'</label>' +
       '</div>' +
       '<button type="button" class="btn btn-primary" id="startSlideshow" '+(rows.length?'':'disabled')+'>播放展示</button>' +
@@ -888,6 +915,7 @@ function slideshowHtml(){
   var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
   var scale = getSlideFontScale();
   var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
+  var aText = assignmentTextColorFor(galleryData.assignments, r.assignment);
   var hasScores = galleryData.criteria.some(function(c){ return r.perCrit[c.key]!=null; });
   var showRadar = galleryShowScores && hasScores;
   var radarBox = showRadar
@@ -909,18 +937,23 @@ function slideshowHtml(){
       '</div>' +
       '<div class="slide-meta-overlay">' +
         '<div class="slide-meta">' +
-          '<span class="gallery-assignment-chip" style="background:'+aColor+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
+          '<span class="gallery-assignment-chip" style="background:'+aColor+';color:'+aText+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
           galleryMetaHtml(r, scoreVal) +
         '</div>' +
         '<span class="slide-pos">'+(idx+1)+' / '+rows.length+'</span>' +
       '</div>' +
       '<div class="slide-controls-bottom">' +
+        '<select id="slideAssignmentFilter" class="slide-assignment-select">'+slideAssignmentOptions()+'</select>' +
         '<button type="button" class="btn btn-accent" id="slidePrev">上一張</button>' +
         '<button type="button" class="btn btn-primary" id="slidePlayPause">'+(slideshowPlaying?'暫停':'播放')+'</button>' +
         '<button type="button" class="btn btn-accent" id="slideNext">下一張</button>' +
       '</div>' +
     '</div>'
   );
+}
+function slideAssignmentOptions(){
+  return '<option value="">全部作業</option>' +
+    (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
 }
 function startSlideTimer(){
   stopSlideTimer();
@@ -949,6 +982,23 @@ function onFullscreenChange(){
 }
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+/** 投影展示時用滑鼠滾輪／左右方向鍵切換上一張下一張，方便老師站在電腦前操作不用點畫面。 */
+function slideAdvance(delta){
+  slideshowIndex = (slideshowIndex||0) + delta;
+  if(slideshowPlaying) startSlideTimer();
+  render();
+}
+document.addEventListener('keydown', function(e){
+  if(slideshowIndex==null) return;
+  if(e.key==='ArrowLeft'){ e.preventDefault(); slideAdvance(-1); }
+  else if(e.key==='ArrowRight'){ e.preventDefault(); slideAdvance(1); }
+});
+document.addEventListener('wheel', function(e){
+  if(slideshowIndex==null) return;
+  if(!e.deltaY) return;
+  e.preventDefault();
+  slideAdvance(e.deltaY > 0 ? 1 : -1);
+}, { passive: false });
 
 // ---------- 器材輪值（多組別、共用時間軸）----------
 function fmtTime(ms){
@@ -1280,6 +1330,8 @@ function teacherEquipMiniHtml(eq){
  */
 function equipDurationQuickHtml(eq){
   var minutes = eq ? eq.perPersonMinutes : 6;
+  var lo = (eq && eq.durationMin!=null) ? eq.durationMin : 1;
+  var hi = (eq && eq.durationMax!=null) ? eq.durationMax : 15;
   var unlocked = equipDurationUnlocked;
   return '<span class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:6px;margin-left:8px">' +
     '每人' +
@@ -1287,7 +1339,7 @@ function equipDurationQuickHtml(eq){
       '<input type="checkbox" id="equipDurationUnlock" '+(unlocked?'checked':'')+' style="cursor:pointer">' +
       '<span>'+(unlocked?'🔓可調':'🔒鎖定')+'</span>' +
     '</label>' +
-    '<input type="range" id="equipDurationSlider" min="1" max="60" step="1" value="'+minutes+'" '+(unlocked?'':'disabled')+' style="width:72px;vertical-align:middle;cursor:'+(unlocked?'pointer':'not-allowed')+'">' +
+    '<input type="range" id="equipDurationSlider" min="'+lo+'" max="'+hi+'" step="1" value="'+minutes+'" '+(unlocked?'':'disabled')+' style="width:72px;vertical-align:middle;cursor:'+(unlocked?'pointer':'not-allowed')+'">' +
     '<span id="equipDurationValue" style="min-width:1.6em;text-align:center;display:inline-block;font-family:\'JetBrains Mono\',monospace">'+minutes+'</span>' +
     '分' +
   '</span>';
@@ -1330,7 +1382,15 @@ function equipmentAdminHtml(){
         '<hr class="divider">' +
         (groupsHtml || '<p class="hint">請先儲存分組名單。</p>') +
         '<hr class="divider">' +
-        '<p class="hint">每人使用時間現在改放在最上面「教師模式」旁邊，隨時可以直接改，不用來這裡設定。</p>' +
+        '<p class="hint">每人使用時間現在改放在最上面「教師模式」旁邊，隨時可以直接改，不用來這裡設定。這裡只設定滑桿可以調整的分鐘數範圍。</p>' +
+        '<div class="field"><span>滑桿可調範圍（分鐘）</span>' +
+          '<div style="display:flex;gap:8px;align-items:center">' +
+            '<input type="number" min="1" max="180" id="equip_duration_min" value="'+(eq.durationMin!=null?eq.durationMin:1)+'" style="width:70px">' +
+            '<span class="hint">到</span>' +
+            '<input type="number" min="1" max="180" id="equip_duration_max" value="'+(eq.durationMax!=null?eq.durationMax:15)+'" style="width:70px">' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-accent" id="equipSaveDurationRange">儲存滑桿範圍</button>' +
         '<hr class="divider">' +
         '<button type="button" class="btn btn-accent" id="equipBuildOrder" style="width:100%">重新排定所有組別的順序（隨機，會把計時歸零）</button>' +
       '</div>' +
@@ -1343,6 +1403,24 @@ function floatingPauseHtml(){
   return '<button type="button" id="floatPauseBtn" class="float-pause-btn">'+(paused?'▶ 繼續全班計時':'⏸ 暫停全班計時')+'</button>';
 }
 /** 點小縮圖時放大看清楚，跟作品牆的全螢幕輪播展示是兩回事，這裡單純只是放大單張圖片。 */
+/**
+ * 交作品送出後蓋在整個畫面上的遮罩：讓學生知道「還在處理，不是卡住」，
+ * 同時擋掉底下畫面的操作，避免亂點誤觸。點遮罩本身（不是點中間的卡片）
+ * 就當作「取消等待」——注意這不是真的中斷網路傳輸，表單其實已經送出去了，
+ * 只是不繼續等結果、把畫面還給使用者，所以卡片裡要把這件事講清楚。
+ */
+function submitOverlayHtml(){
+  if(!submittingWork) return '';
+  return (
+    '<div class="submit-overlay" id="submitOverlay">' +
+      '<div class="submit-overlay-card">' +
+        '<div class="spinner"></div>' +
+        '<p class="submit-overlay-msg">正在上傳中，請稍候…</p>' +
+        '<p class="hint">在這個灰色區域外面點一下，可以取消等待（如果作品其實已經送到，稍後重新整理「交作品」頁面還是會看到它）。</p>' +
+      '</div>' +
+    '</div>'
+  );
+}
 function lightboxHtml(){
   if(!lightboxSrc) return '';
   return (
@@ -1375,8 +1453,15 @@ function handleEquipSaveAttendance(){
 }
 function handleEquipQuickDuration(delta){
   var cur = equipmentData ? equipmentData.perPersonMinutes : 6;
-  var minutes = Math.max(1, Math.min(60, cur + delta));
+  var lo = (equipmentData && equipmentData.durationMin!=null) ? equipmentData.durationMin : 1;
+  var hi = (equipmentData && equipmentData.durationMax!=null) ? equipmentData.durationMax : 15;
+  var minutes = Math.max(lo, Math.min(hi, cur + delta));
   handleEquipAction('equipmentSetDuration', { minutes: minutes });
+}
+function handleEquipSetDurationRange(form){
+  var min = Math.max(1, parseInt(form.querySelector('#equip_duration_min').value,10) || 1);
+  var max = Math.max(min, parseInt(form.querySelector('#equip_duration_max').value,10) || min);
+  handleEquipAction('equipmentSetDurationRange', { min: min, max: max });
 }
 function handleEquipBuildOrder(){
   if(!confirm('確定要重新隨機排定所有組別的順序嗎？目前的計時會歸零，要重新按「開始全班計時」。')) return;
@@ -1431,6 +1516,18 @@ function sortTh(label, table, key, curKey, curDir, extraClass){
   var needsFull = extraClass && (extraClass.indexOf('crit-th')>=0 || extraClass.indexOf('title-cell')>=0);
   return '<th class="th-sort'+(extraClass?' '+extraClass:'')+(active?' th-sort-active':'')+'" data-sort-table="'+table+'" data-sort-key="'+escapeAttr(key)+'"'+(needsFull?' data-full-label="'+escapeAttr(label)+'"':'')+'>'+escapeHtml(label)+arrow+'</th>';
 }
+// 「作業繳交狀況」上面切換作業的控制項，用循環清單（全部作業 + 每份作業）
+// 往前／往後移動一格；點兩側箭頭跟手指左右滑動都是呼叫這個。
+function handleAssignmentSwipe(direction){
+  if(!teacherView) return;
+  var assignments = teacherView.config.assignments || [];
+  var list = [''].concat(assignments);
+  var curIdx = list.indexOf(teacherAssignmentFilter || '');
+  if(curIdx < 0) curIdx = 0;
+  var nextIdx = ((curIdx + direction) % list.length + list.length) % list.length;
+  teacherAssignmentFilter = list[nextIdx];
+  render();
+}
 function handleHeaderSortClick(table, key){
   if(table==='grade'){
     if(teacherSortKey===key) teacherSortDir = -teacherSortDir;
@@ -1471,7 +1568,8 @@ function screenTeacher(){
     }).join('');
     var embed = toEmbed(r.driveLink);
     var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
-    return '<tr'+(r.count<required?' class="tr-flag"':'')+'>' +
+    var underReviewed = r.count < required;
+    return '<tr>' +
       '<td class="num">'+(namesHidden ? '●' : escapeHtml(r.studentSeat))+'</td>' +
       '<td>'+(namesHidden ? '●●●' : escapeHtml(r.studentName))+'</td>' +
       '<td>'+thumb+'</td>' +
@@ -1479,7 +1577,7 @@ function screenTeacher(){
       '<td class="title-cell">'+escapeHtml(r.title||'—')+'</td>' +
       cells +
       '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+'</td>' +
-      '<td class="num">'+r.count+'</td>' +
+      '<td class="num"'+(underReviewed?' style="color:var(--warn);font-weight:700"':'')+' title="'+(underReviewed?'還差 '+(required-r.count)+' 份評分才滿老師設定的 '+required+' 份':'已收滿老師設定的 '+required+' 份評分')+'">'+r.count+(underReviewed?' ⚠':'')+'</td>' +
       '<td class="mono" style="font-size:0.7rem;color:var(--ink-soft)">'+escapeHtml(r.deviceId||'—')+'</td>' +
     '</tr>';
   }).join('');
@@ -1495,7 +1593,7 @@ function screenTeacher(){
     };
     reviewers = sortRows(reviewers, reviewerSortKey, reviewerSortDir, reviewerValueFns, 'seat');
     var reviewerRows = reviewers.map(function(rv){
-      return '<tr'+(!rv.met?' class="tr-flag"':'')+'>' +
+      return '<tr>' +
         '<td class="num">'+(namesHidden ? '●' : escapeHtml(rv.seat))+'</td>' +
         '<td>'+(namesHidden ? '●●●' : escapeHtml(rv.name))+'</td>' +
         '<td>'+(rv.submitted ? '<span style="color:var(--good)">已交</span>' : '<span class="hint">未交作品</span>')+'</td>' +
@@ -1521,8 +1619,13 @@ function screenTeacher(){
       '<div class="card"><p class="hint">上面「篩選作業」選一個特定作業，才能看到那份作業的評分進度——不同作業的評分是分開算的，沒辦法合併顯示。</p></div>';
   }
 
-  var assignmentFilterOptions = '<option value="">全部作業</option>' +
-    assignments.map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(teacherAssignmentFilter===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
+  var assignmentSwiperHtml =
+    '<div class="card assignment-swiper">' +
+      '<button type="button" class="assignment-swipe-btn" data-assignment-swipe="-1" aria-label="上一個作業">‹</button>' +
+      '<div class="assignment-swipe-label">'+(teacherAssignmentFilter ? escapeHtml(teacherAssignmentFilter) : '全部作業')+'</div>' +
+      '<button type="button" class="assignment-swipe-btn" data-assignment-swipe="1" aria-label="下一個作業">›</button>' +
+    '</div>' +
+    '<p class="hint" style="text-align:center;margin-top:-6px">左右滑動這個區塊，或點兩側箭頭，快速切換作業</p>';
 
   var configHtml =
     '<div class="card config-card">' +
@@ -1537,6 +1640,7 @@ function screenTeacher(){
           }).join('') +
         '</div>' +
         '<label class="field"><span>分數要滿幾人評分才自動對全班公開（在這之前分數對所有人都先隱藏，避免太早看到分數互相影響）</span><input type="number" min="0" max="200" id="cfg_scoreThreshold" value="'+(cfg.scoreRevealThreshold!=null?cfg.scoreRevealThreshold:15)+'"></label>' +
+        '<label class="field"><span>作品要滿幾人評分才自動公開作者姓名（不用等老師手動開放那份作業）</span><input type="number" min="0" max="200" id="cfg_namesThreshold" value="'+(cfg.namesRevealThreshold!=null?cfg.namesRevealThreshold:25)+'"></label>' +
         '<p class="hint">密語驗證在伺服器端做，其他同學看不到。之後隨時可以在上面兩個清單「新增一行」作業或題目，不會影響已經收到的作品和分數；但如果去修改文字、刪除或搬動「既有」的那幾行，可能會讓已經收到的分數對不上，這種情況才建議避免在評分開始後做。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
@@ -1570,7 +1674,7 @@ function screenTeacher(){
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-attendance">今日點名</h2>' +
     equipAttendanceHtml(equipmentData) +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">作業繳交狀況</h2>' +
-    '<div class="card"><label class="field" style="margin:0"><span>篩選作業</span><select id="teacherAssignmentFilter">'+assignmentFilterOptions+'</select></label></div>' +
+    assignmentSwiperHtml +
     '<div class="stat-row">' +
       statTile(rows.length, '件作品') +
       statTile(rows.reduce(function(sum,r){ return sum + (r.count||0); }, 0), '筆評分') +
@@ -1582,6 +1686,7 @@ function screenTeacher(){
       '<button class="btn btn-accent" id="exportCsv">匯出 CSV</button>' +
     '</div>' +
     '<label class="toggle-row"><input type="checkbox" id="teacherAutoRefreshToggle" '+(autoRefreshOn?'checked':'')+'> 自動重新整理總表（每 20 秒，正在打字時不會被蓋掉）</label>' +
+    '<p class="hint">「份數」欄位如果變成橘色並帶 ⚠，代表這件作品收到的評分還不到老師設定的 '+required+' 份（滑鼠移過去或點欄位標題可以看詳細數字）。</p>' +
     '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
       sortTh('座號','grade','seat',teacherSortKey,teacherSortDir) +
       sortTh('姓名','grade','name',teacherSortKey,teacherSortDir) +
@@ -1653,7 +1758,8 @@ function render(){
     '</div>' +
     slideshowHtml() +
     floatingPauseHtml() +
-    lightboxHtml();
+    lightboxHtml() +
+    submitOverlayHtml();
   document.getElementById('app').innerHTML = html;
   attachHandlers();
 }
@@ -1799,7 +1905,7 @@ function handleSubmitWork(form){
   if(!pendingImage && !link){ alert('請上傳一張圖片，或貼上圖片網址。'); return; }
   if(link && !safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
   var payload = { id: uid('s_'), studentName:getMyName(), studentSeat:getMySeat(), studentNorm:identityNorm(), title:title, assignment:assignment, createdAt:Date.now(), deviceId:getDeviceId() };
-  loading = true; render();
+  loading = true; submittingWork = true; submitCancelled = false; render();
   if(pendingImage){
     // 圖片資料塞不進網址，用隱藏表單送出、讀不到回應，
     // 送出後改用 apiGet 輪詢確認有沒有存成功、順便拿到伺服器配的作品編號。
@@ -1808,7 +1914,8 @@ function handleSubmitWork(form){
     pendingImage = null;
     postFormNoRead('addSubmission', payload);
     pollForSubmission(payload.id, 0).then(function(sub){
-      loading = false;
+      loading = false; submittingWork = false;
+      if(submitCancelled) return;
       submitTargetAssignment = null;
       if(sub){
         setToast('success', '已送出！同學評分時不會看到你的名字。');
@@ -1817,19 +1924,22 @@ function handleSubmitWork(form){
       }
       loadMySubs();
     }).catch(function(e){
-      loading = false;
+      loading = false; submittingWork = false;
+      if(submitCancelled) return;
       setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
       render();
     });
   } else {
     payload.driveLink = link;
     apiGet('addSubmission', payload).then(function(res){
-      loading = false;
+      loading = false; submittingWork = false;
+      if(submitCancelled) return;
       submitTargetAssignment = null;
       setToast('success', '已送出！同學評分時不會看到你的名字。');
       loadMySubs();
     }).catch(function(e){
-      loading = false;
+      loading = false; submittingWork = false;
+      if(submitCancelled) return;
       setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
       render();
     });
@@ -1875,6 +1985,7 @@ function handleSaveConfig(form){
     namesRevealedByAssignment[cb.getAttribute('data-assignment')] = cb.checked;
   });
   var scoreThreshold = Math.max(0, parseInt(form.querySelector('#cfg_scoreThreshold').value,10) || 0);
+  var namesThreshold = Math.max(0, parseInt(form.querySelector('#cfg_namesThreshold').value,10) || 0);
   var newAssignments = form.querySelector('#cfg_assignments').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
   var authPass = teacherAuthPasscode();
   // 注意：這裡故意不呼叫 render()，因為教師畫面的表單會照「目前存的設定」重畫，
@@ -1882,7 +1993,7 @@ function handleSaveConfig(form){
   // 改成直接操作按鈕本身當作提示，等真的存好了再讓 loadTeacherView() 正常重畫。
   var btn = form.querySelector('button[type="submit"]');
   if(btn){ btn.disabled = true; btn.textContent = '儲存中...'; }
-  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, scoreRevealThreshold:scoreThreshold, assignments:newAssignments }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, scoreRevealThreshold:scoreThreshold, namesRevealThreshold:namesThreshold, assignments:newAssignments }).then(function(res){
     if(!res.ok){
       alert('儲存失敗：密語不對或權限有問題，請重新登入教師專區再試一次。');
       clearTeacherAuth();
@@ -2037,6 +2148,12 @@ function attachHandlers(){
   root.onclick = function(e){
     if(e.target.closest('#lightboxClose')){ lightboxSrc = null; render(); return; }
     if(e.target.id==='lightboxOverlay'){ lightboxSrc = null; render(); return; }
+    if(e.target.id==='submitOverlay'){
+      submitCancelled = true; submittingWork = false; loading = false;
+      setToast('success', '已取消等待。如果作品其實已經送出，稍後重新整理「交作品」頁面還是會看到它。');
+      render();
+      return;
+    }
     var zoomThumb = e.target.closest('.thumb-zoomable');
     if(zoomThumb){ lightboxSrc = zoomThumb.getAttribute('data-full') || zoomThumb.src; render(); return; }
     var navBtn = e.target.closest('[data-nav]');
@@ -2095,6 +2212,8 @@ function attachHandlers(){
       handleHeaderSortClick(sortHeaderEl.getAttribute('data-sort-table'), sortHeaderEl.getAttribute('data-sort-key'));
       return;
     }
+    var swipeBtn = e.target.closest('[data-assignment-swipe]');
+    if(swipeBtn){ handleAssignmentSwipe(parseInt(swipeBtn.getAttribute('data-assignment-swipe'),10)); return; }
     if(e.target.closest('#exportCsv')){ handleExportCsv(); return; }
     if(e.target.closest('#refreshData')){ loadTeacherView(); return; }
     if(e.target.closest('#saveConn')){ handleSaveConnection(document.getElementById('app')); return; }
@@ -2136,8 +2255,8 @@ function attachHandlers(){
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
     var fontBtn = e.target.closest('[data-slide-font]');
     if(fontBtn){ handleSlideFontScale(parseInt(fontBtn.getAttribute('data-slide-font'),10)*0.1); return; }
-    if(e.target.closest('#slidePrev')){ slideshowIndex = (slideshowIndex||0) - 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
-    if(e.target.closest('#slideNext')){ slideshowIndex = (slideshowIndex||0) + 1; if(slideshowPlaying) startSlideTimer(); render(); return; }
+    if(e.target.closest('#slidePrev')){ slideAdvance(-1); return; }
+    if(e.target.closest('#slideNext')){ slideAdvance(1); return; }
     if(e.target.closest('#slidePlayPause')){
       slideshowPlaying = !slideshowPlaying;
       if(slideshowPlaying) startSlideTimer(); else stopSlideTimer();
@@ -2147,6 +2266,7 @@ function attachHandlers(){
     if(e.target.closest('#equipSaveGroups')){ handleEquipSaveGroups(); return; }
     if(e.target.closest('#equipSaveAttendance')){ handleEquipSaveAttendance(); return; }
     if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
+    if(e.target.closest('#equipSaveDurationRange')){ handleEquipSetDurationRange(document.getElementById('app')); return; }
     if(e.target.closest('#equipStart')){ handleEquipStart(); return; }
     if(e.target.closest('#equipPauseToggle') || e.target.closest('#floatPauseBtn')){ handleEquipPauseToggle(); return; }
   };
@@ -2154,9 +2274,9 @@ function attachHandlers(){
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
     if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
     if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; render(); return; }
+    if(e.target.id==='slideAssignmentFilter'){ galleryAssignment = e.target.value; slideshowIndex = 0; render(); return; }
     if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; galleryNamesTouched = true; render(); return; }
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; galleryScoresTouched = true; render(); return; }
-    if(e.target.id==='teacherAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
     if(e.target.id==='teacherAutoRefreshToggle'){ setTeacherAutoRefresh(e.target.checked); return; }
     if(e.target.id==='equipDurationUnlock'){ equipDurationUnlocked = e.target.checked; render(); return; }
     if(e.target.id==='equipDurationSlider'){ handleEquipQuickDuration(parseInt(e.target.value,10) - (equipmentData?equipmentData.perPersonMinutes:6)); return; }
@@ -2169,6 +2289,23 @@ function attachHandlers(){
       if(v) v.textContent = e.target.value;
       return;
     }
+  };
+  // 「作業繳交狀況」上面切換作業的區塊，讓手指可以直接左右滑動切換，
+  // 不用每次都點小箭頭；滑動距離太短（可能只是點擊）就不當滑動處理。
+  root.ontouchstart = function(e){
+    var swiper = e.target.closest('.assignment-swiper');
+    if(swiper && e.touches && e.touches.length===1) assignmentSwipeStartX = e.touches[0].clientX;
+    else assignmentSwipeStartX = null;
+  };
+  root.ontouchend = function(e){
+    if(assignmentSwipeStartX==null) return;
+    var startX = assignmentSwipeStartX;
+    assignmentSwipeStartX = null;
+    var endX = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientX : null;
+    if(endX==null) return;
+    var dx = endX - startX;
+    if(Math.abs(dx) < 40) return;
+    handleAssignmentSwipe(dx < 0 ? 1 : -1);
   };
   root.onsubmit = function(e){
     var form = e.target;
