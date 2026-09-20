@@ -551,7 +551,11 @@ function quickIdentitySwitcherHtml(){
   if(!groups.length) return '';
   return (
     '<div class="card">' +
-      '<h2 class="screen-title" style="font-size:1rem">快速切換身分（測試用，只有你看得到）</h2>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+        '<h2 class="screen-title" style="font-size:1rem;margin:0">快速切換身分（測試用，只有你看得到）</h2>' +
+        '<button type="button" class="btn" style="flex:none;padding:4px 10px;font-size:0.85rem" id="hideQuickIdentity">隱藏</button>' +
+      '</div>' +
+      '<p class="hint" style="margin-top:4px">這個面板只存在你這台裝置的瀏覽器，其他學生自己的手機/電腦不會看到；只是你自己測試完忘了關，才會在切回學生身分時還看得到。按「隱藏」或去「教師專區」關掉開關都可以。</p>' +
       groups.map(function(g){
         return '<div class="quick-id-group">' +
           '<p class="hint" style="margin:6px 0 4px">'+escapeHtml(g.name)+'</p>' +
@@ -1379,11 +1383,9 @@ function screenEquipment(){
   } else if(!state.active){
     timelineSection = '<div class="card"><p class="hint">老師還沒開始計時。</p>' + timelineHtml(state) + '</div>';
   } else if(state.done){
-    timelineSection =
-      '<div class="card equip-current" style="border-left:8px solid var(--good)">' +
-        '<p class="hint">如果要再跑一輪，請跟老師反應，由老師「重新排定順序」重新開始。</p>' +
-        timelineHtml(state) +
-      '</div>';
+    // 上面已經有 equipMiniBarHtml() 的迷你進度條顯示「本輪已全部使用完畢」+ 時間軸，
+    // 這裡不用再重複一次一模一樣的資訊。
+    timelineSection = '';
   } else {
     timelineSection =
       '<div class="card equip-current" style="border-left:8px solid '+(current?swatchColorFor(currentColorName):'#999')+'">' +
@@ -1399,6 +1401,7 @@ function screenEquipment(){
   return (
     '<h1 class="screen-title">器材借用</h1>' +
     '<p class="hint">'+escapeHtml(group.name)+'　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'（尚未排定順序）')+'</p>' +
+    '<p class="hint">組長要負責確認本組器材是否已經正確的歸還，並且在底下打勾歸還的物件之後送出勾選。</p>' +
     timelineSection +
     equipmentReturnChecklistHtml(eq, group)
   );
@@ -2606,6 +2609,12 @@ function attachHandlers(){
       identityEditing = false;
       setToast('success','身分已設定');
       goTo(getRole());
+      return;
+    }
+    if(e.target.closest('#hideQuickIdentity')){
+      localStorage.setItem('crit.quickIdentityEnabled', '0');
+      setToast('info','已隱藏，要再打開請到「教師專區」重新勾選');
+      render();
       return;
     }
     var quickBtn = e.target.closest('[data-quick-seat]');
