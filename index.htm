@@ -236,6 +236,11 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .equip-order-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
 .equip-order-list li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;}
 .equip-order-list li.equip-active{background:var(--accent-soft);font-weight:700;}
+.equip-return-row{transition:background 0.15s;}
+.equip-return-row.equip-return-done{color:var(--good);}
+.equip-return-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.equip-return-chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:0.82rem;background:var(--low-soft);color:var(--low);border:1px solid var(--low);}
+.equip-return-chip-ok{background:var(--accent-soft);color:var(--good);border-color:var(--good);}
 .equip-order-edit{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
 .equip-order-edit-row{display:flex;align-items:center;gap:8px;font-size:0.9rem;}
 .equip-absent{opacity:0.5;text-decoration:line-through;}
@@ -311,6 +316,11 @@ var galleryShowScores = false;
 var galleryNamesTouched = false; // 使用者有沒有自己手動點過「顯示姓名」——沒點過的話，只要老師開放了就預設直接顯示
 var galleryScoresTouched = false; // 同上，對應「顯示分數」
 var galleryAssignment = null; // null = 還沒選，選過之後固定成某個作業名稱或 '' (全部)
+// 格狀縮圖牆一次只渲染這麼多張，捲到底按「載入更多」才加渲染下一批，
+// 避免作品數一多（例如全班 30 人、好幾份作業累積幾百件）手機記憶體被同時解碼的
+// 圖片吃光。切換作業／排序等於換了一批結果，捲動位置的意義也不同了，要重新從頭數。
+var GALLERY_PAGE_SIZE = 30;
+var galleryVisibleCount = GALLERY_PAGE_SIZE;
 var lightboxSrc = null; // 點小縮圖放大看清楚用的，跟播放展示的全螢幕輪播是分開的功能
 var slideshowIndex = null;
 var slideshowPlaying = true;
@@ -930,7 +940,9 @@ function screenGallery(){
     (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
   var sortOptions = '<option value="overall"'+(gallerySort==='overall'?' selected':'')+'>總平均（預設）</option>' +
     galleryData.criteria.map(function(c){ return '<option value="'+escapeAttr(c.key)+'"'+(gallerySort===c.key?' selected':'')+'>'+escapeHtml(c.label)+'</option>'; }).join('');
-  var cards = rows.map(function(r, i){
+  // data-idx 一定要對應「完整排序結果」裡的位置，不能是切片後的相對位置，
+  // 不然點卡片開投影展示會抓錯作品——所以先算好全部卡片，最後才切要顯示幾張。
+  var allCards = rows.map(function(r, i){
     var scoreVal = gallerySort==='overall' ? r.overall : r.perCrit[gallerySort];
     var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
     var aText = assignmentTextColorFor(galleryData.assignments, r.assignment);
@@ -938,12 +950,18 @@ function screenGallery(){
       '<div class="gallery-img">'+galleryImageHtml(r, true)+'</div>' +
       '<div class="gallery-meta"><span class="gallery-assignment-chip" style="background:'+aColor+';color:'+aText+'">'+escapeHtml(r.assignment||'未分類')+'</span>'+galleryMetaHtml(r, scoreVal)+'</div>' +
     '</div>';
-  }).join('');
+  });
+  var visibleCount = Math.min(galleryVisibleCount, allCards.length);
+  var cards = allCards.slice(0, visibleCount).join('');
+  var moreCount = allCards.length - visibleCount;
   var bodyHtml;
   if(galleryViewMode==='table'){
     bodyHtml = galleryTableHtml(rows);
   } else {
-    bodyHtml = rows.length ? '<div class="gallery-grid">'+cards+'</div>' : '<div class="card"><p class="hint">這份作業目前還沒有作品。</p></div>';
+    bodyHtml = rows.length ? (
+      '<div class="gallery-grid">'+cards+'</div>' +
+      (moreCount>0 ? '<button type="button" class="btn btn-accent" id="galleryLoadMore" style="width:100%;margin-top:10px">載入更多（還有 '+moreCount+' 件）</button>' : '')
+    ) : '<div class="card"><p class="hint">這份作業目前還沒有作品。</p></div>';
   }
   return (
     '<h1 class="screen-title">作品牆</h1>' +
@@ -1134,6 +1152,8 @@ function patchEquipmentDisplay(){
   // 打斷老師正在填的教師設定／器材管理表單，可以放心每次都直接整段換新。
   var teacherSlot = document.getElementById('teacherEquipOverviewSlot');
   if(teacherSlot) teacherSlot.innerHTML = teacherEquipmentOverviewHtml(equipmentData);
+  var teacherReturnSlot = document.getElementById('teacherEquipReturnSlot');
+  if(teacherReturnSlot) teacherReturnSlot.innerHTML = teacherEquipmentReturnReportHtml(equipmentData);
   var teacherControlsSlot = document.getElementById('teacherEquipControlsSlot');
   if(teacherControlsSlot) teacherControlsSlot.innerHTML = equipStartPauseButtonsHtml(equipmentData);
   var teacherMiniSlot = document.getElementById('teacherEquipMiniSlot');
@@ -1242,15 +1262,15 @@ function findMyGroup(eq){
 }
 function screenEquipment(){
   if(!equipmentData){
-    return '<h1 class="screen-title">器材輪值</h1><p class="hint">載入中...</p>';
+    return '<h1 class="screen-title">器材借用</h1><p class="hint">載入中...</p>';
   }
   if(!hasIdentity()){
-    return '<h1 class="screen-title">器材輪值</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，系統才能找到你的分組。</p>';
+    return '<h1 class="screen-title">器材借用</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，系統才能找到你的分組。</p>';
   }
   var eq = equipmentData;
   var group = findMyGroup(eq);
   if(!group){
-    return '<h1 class="screen-title">器材輪值</h1><div class="card"><p class="hint">目前還沒有把 '+escapeHtml(getMySeat())+' 號分到任何組別，請跟老師確認分組名單。</p></div>';
+    return '<h1 class="screen-title">器材借用</h1><div class="card"><p class="hint">目前還沒有把 '+escapeHtml(getMySeat())+' 號分到任何組別，請跟老師確認分組名單。</p></div>';
   }
   var state = equipGroupState(eq, group);
   var order = state.order;
@@ -1259,9 +1279,6 @@ function screenEquipment(){
   var currentColorName = current ? colorNameForIndex(state.currentIndex) : null;
   var nextColorName = next ? colorNameForIndex((state.currentIndex+1)%order.length) : null;
   var leaderSeat = leaderSeatFor(group);
-  var memberListHtml = '<ul class="equip-order-list">' + group.members.map(function(m){
-    return '<li class="'+(m.present?'':'equip-absent')+'">'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+(leaderSeat===m.seat?'（組長）':'')+'</li>';
-  }).join('') + '</ul>';
   var timelineSection;
   if(!order.length){
     timelineSection = '<div class="card"><p class="hint">老師還沒排定這一組的輪流順序。</p></div>';
@@ -1271,7 +1288,6 @@ function screenEquipment(){
     timelineSection =
       '<div class="card equip-current" style="border-left:8px solid var(--good)">' +
         '<p class="equip-turn-label">本輪已經全部使用完畢</p>' +
-        '<p class="hint">最後使用的是：'+escapeHtml(order[order.length-1].seat)+'號 '+escapeHtml(order[order.length-1].name)+'</p>' +
         '<p class="hint">如果要再跑一輪，請跟老師反應，由老師「重新排定順序」重新開始。</p>' +
         timelineHtml(state) +
       '</div>';
@@ -1287,9 +1303,36 @@ function screenEquipment(){
       '</div>';
   }
   return (
-    '<h1 class="screen-title">器材輪值</h1>' +
-    '<div class="card"><h2 class="screen-title" style="font-size:1rem">'+escapeHtml(group.name)+'　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'（尚未排定順序）')+'</h2>'+memberListHtml+'</div>' +
-    timelineSection
+    '<h1 class="screen-title">器材借用</h1>' +
+    '<p class="hint">'+escapeHtml(group.name)+'　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'（尚未排定順序）')+'</p>' +
+    timelineSection +
+    equipmentReturnChecklistHtml(eq, group)
+  );
+}
+/**
+ * 本組器材借還勾選清單：點一下就直接送出、立刻生效，不用另外按確認——
+ * 情境是下課時大家趕著走，能少一個步驟就少一個。任何看得到這頁的人都能勾，
+ * 不需要教師密語，是跟評分/交作品一樣的課堂信任機制。
+ */
+function equipmentReturnChecklistHtml(eq, group){
+  var items = eq.itemTypes || [];
+  if(!items.length) return '';
+  var returned = group.equipmentReturned || [];
+  var allBack = items.length>0 && items.every(function(_, i){ return !!returned[i]; });
+  var rows = items.map(function(name, i){
+    var back = !!returned[i];
+    return '<label class="toggle-row equip-return-row'+(back?' equip-return-done':'')+'">' +
+      '<input type="checkbox" class="equip-return-cb" data-group="'+escapeAttr(group.name)+'" data-index="'+i+'" '+(back?'checked':'')+'> ' +
+      escapeHtml(name)+(back?'（已歸還）':'') +
+    '</label>';
+  }).join('');
+  return (
+    '<div class="card" style="margin-top:10px'+(allBack?';border-color:var(--good)':'')+'">' +
+      '<h2 class="screen-title" style="font-size:1rem">本組器材</h2>' +
+      '<p class="hint">用完歸還時勾起來，老師可以馬上看到還缺什麼。</p>' +
+      rows +
+      (allBack ? '<p class="hint" style="color:var(--good);font-weight:700">已全部歸還，謝謝！</p>' : '') +
+    '</div>'
   );
 }
 /**
@@ -1299,7 +1342,7 @@ function screenEquipment(){
 function teacherEquipmentOverviewHtml(eq){
   if(!eq) return '<div class="card"><p class="hint">載入中...</p></div>';
   if(!eq.groups || !eq.groups.length){
-    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材輪值管理」新增分組名單。</p></div>';
+    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材借用管理」新增分組名單。</p></div>';
   }
   return eq.groups.map(function(g){
     var state = equipGroupState(eq, g);
@@ -1327,6 +1370,39 @@ function teacherEquipmentOverviewHtml(eq){
       '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+swatchColorFor(currentColorName):'')+'">' +
         '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml((leaderSeatFor(g))?(leaderSeatFor(g)+' 號'):'（尚未排定順序）')+'</h3>' +
         body +
+      '</div>'
+    );
+  }).join('');
+}
+/**
+ * 老師下課前要看的：哪一組還有什麼器材沒還、要找誰要——
+ * 組長跟最後輪值的人都列出來，這兩個通常是最後拿著器材的人，比較好問。
+ */
+function teacherEquipmentReturnReportHtml(eq){
+  if(!eq || !eq.groups || !eq.groups.length) return '';
+  var items = eq.itemTypes || [];
+  if(!items.length) return '';
+  return eq.groups.map(function(g){
+    var leaderSeat = leaderSeatFor(g);
+    var presentOrder = presentOrderFor(g);
+    var lastUser = presentOrder.length ? presentOrder[presentOrder.length-1] : null;
+    var returned = g.equipmentReturned || [];
+    var missing = [];
+    var itemRows = items.map(function(name, i){
+      var back = !!returned[i];
+      if(!back) missing.push(name);
+      return '<span class="equip-return-chip'+(back?' equip-return-chip-ok':'')+'">'+escapeHtml(name)+(back?' ✓':' ✗')+'</span>';
+    }).join('');
+    return (
+      '<div class="card" style="margin-top:10px'+(missing.length?';border-color:var(--warn)':';border-color:var(--good)')+'">' +
+        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+
+          '　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'—')+
+          '　最後輪值：'+escapeHtml(lastUser?(lastUser.seat+' 號 '+lastUser.name):'—')+
+        '</h3>' +
+        '<div class="equip-return-chips">'+itemRows+'</div>' +
+        (missing.length
+          ? '<p class="hint" style="color:var(--warn);font-weight:700">還沒還：'+missing.map(escapeHtml).join('、')+'</p>'
+          : '<p class="hint" style="color:var(--good);font-weight:700">已全部歸還</p>') +
       '</div>'
     );
   }).join('');
@@ -1372,7 +1448,7 @@ function equipAttendanceHtml(eq){
     return '<div class="card"><p class="hint">載入中...</p></div>';
   }
   if(!eq.groups || !eq.groups.length){
-    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材輪值管理」新增分組名單。</p></div>';
+    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材借用管理」新增分組名單。</p></div>';
   }
   var mode = attendanceSortMode;
   var groupsHtml = eq.groups.map(function(g){
@@ -1389,7 +1465,7 @@ function equipAttendanceHtml(eq){
   }).join('');
   return (
     '<div class="card">' +
-      '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材輪值的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。開始／暫停計時的按鈕放在最上面，隨時都點得到。</p>' +
+      '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材借用的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。開始／暫停計時的按鈕放在最上面，隨時都點得到。</p>' +
       '<div class="cta-row">' +
         '<button type="button" class="btn '+(mode==='seat'?'btn-primary':'btn-accent')+'" data-attendance-sort="seat">依座號排序</button>' +
         '<button type="button" class="btn '+(mode==='order'?'btn-primary':'btn-accent')+'" data-attendance-sort="order">依分組順序排序</button>' +
@@ -1463,7 +1539,7 @@ function handleEquipStartPauseToggle(){
 }
 function equipmentAdminHtml(){
   if(!equipmentData){
-    return '<div class="card config-card"><h2 class="screen-title" style="font-size:1rem">器材輪值管理</h2><p class="hint">載入中...</p></div>';
+    return '<div class="card config-card"><h2 class="screen-title" style="font-size:1rem">器材借用管理</h2><p class="hint">載入中...</p></div>';
   }
   var eq = equipmentData;
   var groupsText = eq.groups.map(function(g){
@@ -1491,7 +1567,7 @@ function equipmentAdminHtml(){
   }).join('');
   return (
     '<div class="card config-card">' +
-      '<h2 class="screen-title" style="font-size:1rem">器材輪值管理</h2>' +
+      '<h2 class="screen-title" style="font-size:1rem">器材借用管理</h2>' +
       '<div class="form">' +
         '<label class="field"><span>分組名單（每組一段：第一行是組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="equip_groups" style="min-height:140px">'+escapeHtml(groupsText)+'</textarea></label>' +
         '<button type="button" class="btn btn-primary" id="equipSaveGroups">儲存分組名單</button>' +
@@ -1508,7 +1584,12 @@ function equipmentAdminHtml(){
         '</div>' +
         '<button type="button" class="btn btn-accent" id="equipSaveDurationRange">儲存滑桿範圍</button>' +
         '<hr class="divider">' +
-        '<button type="button" class="btn btn-accent" id="equipBuildOrder" style="width:100%">重新排定所有組別的順序（隨機，會把計時歸零）</button>' +
+        '<label class="field"><span>器材清單（每行一項，同款要借幾份就重複列幾行，例如記憶卡要 2 張就寫兩行「記憶卡」）</span><textarea id="equip_items" style="min-height:100px">'+escapeHtml((eq.itemTypes||[]).join('\n'))+'</textarea></label>' +
+        '<button type="button" class="btn btn-accent" id="equipSaveItemTypes">儲存器材清單</button>' +
+        '<p class="hint">每組是否歸還的勾選狀態，在學生的「器材借用」頁面裡就能看到、直接勾。</p>' +
+        '<hr class="divider">' +
+        '<button type="button" class="btn btn-accent" id="equipBuildOrder" style="width:100%">重新排定所有組別的順序（隨機，會把計時歸零，順便把器材歸還狀態整批重置）</button>' +
+        '<button type="button" class="btn btn-accent" id="equipResetReturned" style="width:100%;margin-top:8px">只重設器材歸還狀態（不動計時和順序）</button>' +
       '</div>' +
     '</div>'
   );
@@ -1578,8 +1659,16 @@ function handleEquipSetDurationRange(form){
   handleEquipAction('equipmentSetDurationRange', { min: min, max: max });
 }
 function handleEquipBuildOrder(){
-  if(!confirm('確定要重新隨機排定所有組別的順序嗎？目前的計時會歸零，要重新按「開始全班計時」。')) return;
+  if(!confirm('確定要重新隨機排定所有組別的順序嗎？目前的計時會歸零，要重新按「開始全班計時」；器材歸還狀態也會整批重置成「還沒還」。')) return;
   handleEquipAction('equipmentBuildOrder');
+}
+function handleEquipSaveItemTypes(form){
+  var items = form.querySelector('#equip_items').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  handleEquipAction('equipmentSetItemTypes', { itemTypes: items });
+}
+function handleEquipResetReturned(){
+  if(!confirm('確定要把所有組別的器材歸還狀態整批重設成「還沒還」嗎？不會動到輪值順序和計時進度。')) return;
+  handleEquipAction('equipmentResetReturned');
 }
 function handleEquipStart(){
   handleEquipAction('equipmentStart');
@@ -1772,7 +1861,7 @@ function screenTeacher(){
   var dangerZoneHtml =
     '<div class="card" style="border-color:var(--low)">' +
       '<h2 class="screen-title" style="font-size:1rem;color:var(--low)" id="section-danger">危險區：一鍵還原資料</h2>' +
-      '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材輪值目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
+      '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材借用目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
       '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
       '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
     '</div>';
@@ -1781,8 +1870,10 @@ function screenTeacher(){
 
   return (
     '<h1 class="screen-title">教師總表</h1>' +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-equipment">器材輪值總覽</h2>' +
+    '<h2 class="screen-title" style="font-size:1.1rem" id="section-equipment">器材借用總覽</h2>' +
     '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
+    '<h2 class="screen-title" style="font-size:1.1rem">器材借用報表</h2>' +
+    '<div id="teacherEquipReturnSlot">' + teacherEquipmentReturnReportHtml(equipmentData) + '</div>' +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-attendance">今日點名</h2>' +
     equipAttendanceHtml(equipmentData) +
     equipmentAdminHtml() +
@@ -1846,7 +1937,7 @@ function navHtml(role){
         '<div id="teacherEquipMiniSlot">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
       '</div>' +
       '<nav class="tabs" style="flex-wrap:wrap">' +
-        '<a href="#section-equipment" class="navbtn">器材輪值</a>' +
+        '<a href="#section-equipment" class="navbtn">器材借用</a>' +
         '<a href="#section-attendance" class="navbtn">點名</a>' +
         '<a href="#section-settings" class="navbtn">其他設定</a>' +
         '<span id="teacherHeaderAssignmentSlot" style="display:contents">' + teacherHeaderAssignmentSwitcherHtml() + '</span>' +
@@ -1854,7 +1945,7 @@ function navHtml(role){
       '</nav>' +
     '</header>';
   }
-  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材輪值')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
+  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材借用')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
 }
 
 function render(){
@@ -2377,6 +2468,7 @@ function attachHandlers(){
     if(e.target.closest('#switchAssignment')){ reviewAssignment = null; reviewView = null; render(); return; }
     if(e.target.closest('#galleryModeGrid')){ galleryViewMode = 'grid'; render(); return; }
     if(e.target.closest('#galleryModeTable')){ galleryViewMode = 'table'; render(); return; }
+    if(e.target.closest('#galleryLoadMore')){ galleryVisibleCount += GALLERY_PAGE_SIZE; render(); return; }
     if(e.target.closest('#startSlideshow')){
       // 預設不自動播放，要手動按暫停/播放按鈕才會開始輪播
       slideshowIndex = 0; slideshowPlaying = false; enterFullscreen(); render(); return;
@@ -2403,19 +2495,28 @@ function attachHandlers(){
     if(attSortBtn){ attendanceSortMode = attSortBtn.getAttribute('data-attendance-sort'); render(); return; }
     if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
     if(e.target.closest('#equipSaveDurationRange')){ handleEquipSetDurationRange(document.getElementById('app')); return; }
+    if(e.target.closest('#equipSaveItemTypes')){ handleEquipSaveItemTypes(document.getElementById('app')); return; }
+    if(e.target.closest('#equipResetReturned')){ handleEquipResetReturned(); return; }
     if(e.target.closest('#equipStartPauseToggle')){ handleEquipStartPauseToggle(); return; }
   };
   root.onchange = function(e){
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
-    if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
-    if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; render(); return; }
+    if(e.target.id==='gallerySort'){ gallerySort = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; render(); return; }
+    if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; render(); return; }
     if(e.target.id==='teacherHeaderAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
-    if(e.target.id==='slideAssignmentFilter'){ galleryAssignment = e.target.value; slideshowIndex = 0; render(); return; }
+    if(e.target.id==='slideAssignmentFilter'){ galleryAssignment = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; slideshowIndex = 0; render(); return; }
     if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; galleryNamesTouched = true; render(); return; }
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; galleryScoresTouched = true; render(); return; }
     if(e.target.id==='teacherAutoRefreshToggle'){ setTeacherAutoRefresh(e.target.checked); return; }
     if(e.target.id==='equipDurationUnlock'){ equipDurationUnlocked = e.target.checked; render(); return; }
     if(e.target.id==='equipDurationSlider'){ handleEquipQuickDuration(parseInt(e.target.value,10) - (equipmentData?equipmentData.perPersonMinutes:6)); return; }
+    if(e.target.classList && e.target.classList.contains('equip-return-cb')){
+      apiGet('equipmentToggleReturned', { groupName: e.target.getAttribute('data-group'), index: e.target.getAttribute('data-index') }).then(function(res){
+        if(res.ok){ equipmentData = res.equipment; }
+        render();
+      }).catch(function(err){ setToast('error','操作失敗：'+err.message); render(); });
+      return;
+    }
   };
   // 拖曳滑桿的當下先只更新畫面上的數字，不要每移動一點就打一次 API，
   // 真正送出存檔是放開滑桿時觸發的 change 事件（上面 root.onchange）。
