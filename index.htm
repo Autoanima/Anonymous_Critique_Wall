@@ -85,6 +85,8 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .field{display:flex;flex-direction:column;gap:6px;font-size:0.85rem;color:var(--ink-soft);}
 .field input,.field textarea,.field select{width:100%;font-size:1rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;}
 .assignment-pick{display:flex;flex-direction:column;gap:8px;}
+.assignment-progress-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:0.72rem;font-weight:700;background:rgba(255,255,255,0.18);vertical-align:middle;}
+.assignment-progress-warn{background:var(--warn);color:#1a1a1a;}
 .field input:focus,.field textarea:focus{outline:2px solid var(--focus);outline-offset:1px;}
 .hint{font-size:0.8rem;color:var(--ink-soft);margin:0;}
 
@@ -289,6 +291,7 @@ var apiUrl = getApiUrl();
 var homeStats = null;
 var mySubs = null;
 var reviewView = null;
+var myReviewProgress = null; // { assignments, required, progress:{作業名稱:已評件數} }，選作業畫面用來提示還沒評完的作業
 var teacherView = null;
 var loading = false;
 // 交作品上傳期間的全螢幕遮罩：擋住畫面其他操作，避免使用者以為卡住而亂點；
@@ -331,9 +334,11 @@ var RAINBOW_COLORS = {'紅':'#EE2737','橙':'#F89C08','黃':'#FFD600','黃綠':'
 // 依每個底色的明暗，挑對比較清楚的文字顏色（淺色底用深字、深色底用白字），
 // 純粹是自動判斷可讀性，不是讓使用者可以調整顏色的功能。
 var RAINBOW_TEXT = {'紅':'#fff','橙':'#1a1a1a','黃':'#1a1a1a','黃綠':'#1a1a1a','淺藍':'#1a1a1a','紫':'#fff','粉紅':'#1a1a1a','橄欖灰褐':'#1a1a1a'};
-// 保護用：如果存的顏色名稱是改色盤之前留下來的舊名稱（在目前這組 8 色裡找不到），
-// 就退回用色盤第一色，不要讓畫面直接變成沒上色的白底黑字——那樣看起來像壞掉。
-// 真正的修法是重新部署最新的 Code.gs，再按一次「重新排定所有組別的順序」讓顏色全部重新產生。
+// 顏色完全依「這個人排在第幾個位置」現算，不是存在資料裡跟著這個人走的固定屬性——
+// 每一組的邏輯都一樣：第 1 個位置永遠是色盤第 1 色，第 2 個位置永遠是第 2 色，依此類推，
+// 8 個用完就繞回第 1 色重來。這樣不管誰請假、誰被移除、名單怎麼增減，只要看畫面上
+// 排第幾個，顏色永遠對得上，也不會再有「存了舊色盤名稱、換色盤後查不到」這種問題。
+function colorNameForIndex(i){ var n = RAINBOW_ORDER.length; return RAINBOW_ORDER[((i % n) + n) % n]; }
 function swatchColorFor(colorName){ return RAINBOW_COLORS[colorName] || RAINBOW_COLORS[RAINBOW_ORDER[0]]; }
 function swatchTextFor(colorName){ return RAINBOW_TEXT[colorName] || RAINBOW_TEXT[RAINBOW_ORDER[0]] || '#fff'; }
 
@@ -687,6 +692,14 @@ function reviewQuotaNoticeHtml(required){
     : '每一項作業都要完成至少老師要求的評分件數，沒有完成的話總分會被扣分。';
   return '<div class="card" style="border-color:var(--warn)"><p class="hint" style="color:var(--warn)">⚠️ '+text+'</p></div>';
 }
+/** 這位評分者在某份作業已經評了幾件，配合 myReviewProgress 資料查（還沒載入就回傳 null）。 */
+function myProgressFor(a){
+  if(!myReviewProgress || !myReviewProgress.progress) return null;
+  var target = normAssignment(a);
+  var keys = Object.keys(myReviewProgress.progress);
+  for(var i=0;i<keys.length;i++){ if(normAssignment(keys[i])===target) return myReviewProgress.progress[keys[i]]; }
+  return null;
+}
 function screenReview(){
   if(!hasIdentity()){
     return '<h1 class="screen-title">我要評分</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能開始評分。</p>';
@@ -700,7 +713,14 @@ function screenReview(){
       reviewQuotaNoticeHtml() +
       '<div class="card assignment-pick">' +
         '<p class="hint">選擇要評哪一份作業：</p>' +
-        assignmentsList.map(function(a){ return '<button type="button" class="btn btn-accent" data-pick-assignment="'+escapeAttr(a)+'">'+escapeHtml(a)+'</button>'; }).join('') +
+        assignmentsList.map(function(a){
+          var done = myProgressFor(a);
+          var required = myReviewProgress ? myReviewProgress.required : null;
+          var badge = (done!=null && required!=null)
+            ? ' <span class="assignment-progress-badge'+(done<required?' assignment-progress-warn':'')+'">'+done+'/'+required+(done<required?' 還差 '+(required-done):'')+'</span>'
+            : '';
+          return '<button type="button" class="btn btn-accent" data-pick-assignment="'+escapeAttr(a)+'">'+escapeHtml(a)+badge+'</button>';
+        }).join('') +
       '</div>'
     );
   }
@@ -1138,7 +1158,8 @@ function timelineHtml(state, compact){
   var order = state.order||[];
   if(!order.length) return '';
   var segs = order.map(function(p,i){
-    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+swatchColorFor(p.color)+';color:'+swatchTextFor(p.color)+'">' +
+    var colorName = colorNameForIndex(i);
+    return '<div class="rotation-segment'+(state.active && i===state.currentIndex?' rotation-seg-active':'')+'" style="background:'+swatchColorFor(colorName)+';color:'+swatchTextFor(colorName)+'">' +
       '<span class="rotation-seat">'+escapeHtml(stripLeadingZero(p.seat))+'號</span>' +
       '<span class="rotation-name">'+escapeHtml(p.name)+'</span>' +
     '</div>';
@@ -1192,6 +1213,8 @@ function screenEquipment(){
   var order = state.order;
   var current = (state.active && !state.done) ? order[state.currentIndex] : null;
   var next = (state.active && !state.done && order.length) ? order[(state.currentIndex+1)%order.length] : null;
+  var currentColorName = current ? colorNameForIndex(state.currentIndex) : null;
+  var nextColorName = next ? colorNameForIndex((state.currentIndex+1)%order.length) : null;
   var leaderSeat = leaderSeatFor(group);
   var memberListHtml = '<ul class="equip-order-list">' + group.members.map(function(m){
     return '<li class="'+(m.present?'':'equip-absent')+'">'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+(leaderSeat===m.seat?'（組長）':'')+'</li>';
@@ -1211,12 +1234,12 @@ function screenEquipment(){
       '</div>';
   } else {
     timelineSection =
-      '<div class="card equip-current" style="border-left:8px solid '+(current?swatchColorFor(current.color):'#999')+'">' +
+      '<div class="card equip-current" style="border-left:8px solid '+(current?swatchColorFor(currentColorName):'#999')+'">' +
         (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停</p>' : '') +
         '<p class="equip-turn-label">目前使用：</p>' +
-        '<p class="equip-turn-name">'+(current ? ('<span class="equip-swatch" style="background:'+swatchColorFor(current.color)+'"></span>'+escapeHtml(current.color)+'夾・'+escapeHtml(current.seat)+'號 '+escapeHtml(current.name)) : '—')+'</p>' +
+        '<p class="equip-turn-name">'+(current ? ('<span class="equip-swatch" style="background:'+swatchColorFor(currentColorName)+'"></span>'+escapeHtml(currentColorName)+'夾・'+escapeHtml(current.seat)+'號 '+escapeHtml(current.name)) : '—')+'</p>' +
         '<p class="equip-timer">'+fmtTime(state.remainingMs)+'</p>' +
-        '<p class="hint">下一位：'+(next ? (escapeHtml(next.color)+'夾・'+escapeHtml(next.seat)+'號 '+escapeHtml(next.name)) : '—')+'</p>' +
+        '<p class="hint">下一位：'+(next ? (escapeHtml(nextColorName)+'夾・'+escapeHtml(next.seat)+'號 '+escapeHtml(next.name)) : '—')+'</p>' +
         timelineHtml(state) +
       '</div>';
   }
@@ -1240,6 +1263,7 @@ function teacherEquipmentOverviewHtml(eq){
     var order = state.order;
     var current = (state.active && !state.done) ? order[state.currentIndex] : null;
     var next = (state.active && !state.done && order.length) ? order[(state.currentIndex+1)%order.length] : null;
+    var currentColorName = current ? colorNameForIndex(state.currentIndex) : null;
     var body;
     if(!order.length){
       body = '<p class="hint">還沒排定順序。</p>';
@@ -1257,7 +1281,7 @@ function teacherEquipmentOverviewHtml(eq){
         timelineHtml(state, true);
     }
     return (
-      '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+swatchColorFor(current.color):'')+'">' +
+      '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+swatchColorFor(currentColorName):'')+'">' +
         '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml((leaderSeatFor(g))?(leaderSeatFor(g)+' 號'):'（尚未排定順序）')+'</h3>' +
         body +
       '</div>'
@@ -1367,8 +1391,15 @@ function equipmentAdminHtml(){
   }).join('\n\n');
   var groupsHtml = eq.groups.map(function(g){
     var leaderSeat = leaderSeatFor(g);
-    var orderRows = (g.order||[]).map(function(p,i){
-      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="background:'+swatchColorFor(p.color)+'"></span><span>'+(i+1)+'. '+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(leaderSeat===p.seat?'（組長）':'')+'</span></div>';
+    // 顏色跟編號都照「目前有出席、實際會轉圈」的順序算，缺席的人本來就不在轉圈裡，
+    // 不應該佔一個顏色位置，不然編號跟顏色會跟學生實際看到的輪值畫面對不起來。
+    var presentOrder = presentOrderFor(g);
+    var presentIndexBySeat = {};
+    presentOrder.forEach(function(pp, idx){ presentIndexBySeat[normSeat(pp.seat)] = idx; });
+    var orderRows = (g.order||[]).map(function(p){
+      var pi = presentIndexBySeat[normSeat(p.seat)];
+      var swatchStyle = pi!=null ? 'background:'+swatchColorFor(colorNameForIndex(pi)) : 'background:var(--surface-2);opacity:0.4';
+      return '<div class="equip-order-edit-row"><span class="equip-swatch" style="'+swatchStyle+'"></span><span>'+(pi!=null?(pi+1)+'. ':'（缺席）')+escapeHtml(p.seat)+'號 '+escapeHtml(p.name)+(leaderSeat===p.seat?'（組長）':'')+'</span></div>';
     }).join('');
     return (
       '<div class="card" style="margin-top:10px">' +
@@ -1783,6 +1814,13 @@ function loadReviewView(){
     reviewView = res; render();
   }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
 }
+/** 選作業畫面／評分中都會用到：每份作業各自評了幾件，用來提示還沒評夠的作業。 */
+function loadMyReviewProgress(){
+  if(!hasIdentity() || !apiUrl) return;
+  apiGet('getMyReviewProgress', { reviewerNorm: identityNorm() }).then(function(res){
+    myReviewProgress = res; render();
+  }).catch(function(){});
+}
 function loadTeacherView(){
   if(!apiUrl){ setToast('error','請先到「連接設定」貼上資料庫網址。'); setRole('connect'); render(); return; }
   var pass = teacherAuthPasscode();
@@ -1847,6 +1885,7 @@ function goTo(role){
   else if(role==='submit') loadMySubs();
   else if(role==='review'){
     if(hasIdentity()){
+      loadMyReviewProgress();
       if(!reviewAssignment && assignmentsList.length===1) reviewAssignment = assignmentsList[0];
       if(reviewAssignment) loadReviewView(); else render();
     } else render();
@@ -1962,6 +2001,7 @@ function handleSubmitScore(form){
     loading = false;
     setToast('success', '評分已送出，謝謝！');
     loadReviewView();
+    loadMyReviewProgress();
   }).catch(function(e){
     loading = false;
     setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
