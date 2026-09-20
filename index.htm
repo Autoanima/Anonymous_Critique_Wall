@@ -150,9 +150,10 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .grade-table th.th-sort:hover{color:var(--ink);}
 .grade-table th.th-sort-active{color:var(--accent-strong);}
 .grade-table th.crit-th,.grade-table td.title-cell{max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.assignment-swiper{display:flex;align-items:center;justify-content:space-between;gap:12px;touch-action:pan-y;user-select:none;}
-.assignment-swipe-btn{background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:8px;width:40px;height:40px;font-size:1.3rem;line-height:1;cursor:pointer;flex:none;}
-.assignment-swipe-label{flex:1;text-align:center;font-weight:700;font-size:1.05rem;}
+.assignment-chip-scroll{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;padding:2px 14px;}
+.assignment-chip-scroll::-webkit-scrollbar{height:4px;}
+.assignment-chip{flex:none;scroll-snap-align:center;background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:9px 16px;font-size:0.9rem;font-weight:600;cursor:pointer;white-space:nowrap;}
+.assignment-chip-active{background:var(--accent);color:#fff;border-color:var(--accent);}
 /* 手機橫放時盡量整張總表都塞進螢幕寬度，不用再左右滑動——欄位多的時候
    靠縮小字級、留白跟縮圖，比欄寬硬性下限更重要，所以這裡把下限拿掉。
    螢幕比較窄的橫向（手機）繼續把長標題／作品名稱截斷成省略號；
@@ -313,7 +314,6 @@ var identityEditing = false;
 var assignmentsList = []; // 從 home/gallery/teacherFetch 回應同步過來
 var reviewAssignment = null; // null = 還沒選要評哪個作業
 var teacherAssignmentFilter = '';
-var assignmentSwipeStartX = null;
 // 兩張表各自獨立的排序狀態：null 代表還沒點過任何欄位標題，用預設的座號排序。
 var teacherSortKey = null, teacherSortDir = 1;
 var reviewerSortKey = null, reviewerSortDir = 1;
@@ -1516,18 +1516,6 @@ function sortTh(label, table, key, curKey, curDir, extraClass){
   var needsFull = extraClass && (extraClass.indexOf('crit-th')>=0 || extraClass.indexOf('title-cell')>=0);
   return '<th class="th-sort'+(extraClass?' '+extraClass:'')+(active?' th-sort-active':'')+'" data-sort-table="'+table+'" data-sort-key="'+escapeAttr(key)+'"'+(needsFull?' data-full-label="'+escapeAttr(label)+'"':'')+'>'+escapeHtml(label)+arrow+'</th>';
 }
-// 「作業繳交狀況」上面切換作業的控制項，用循環清單（全部作業 + 每份作業）
-// 往前／往後移動一格；點兩側箭頭跟手指左右滑動都是呼叫這個。
-function handleAssignmentSwipe(direction){
-  if(!teacherView) return;
-  var assignments = teacherView.config.assignments || [];
-  var list = [''].concat(assignments);
-  var curIdx = list.indexOf(teacherAssignmentFilter || '');
-  if(curIdx < 0) curIdx = 0;
-  var nextIdx = ((curIdx + direction) % list.length + list.length) % list.length;
-  teacherAssignmentFilter = list[nextIdx];
-  render();
-}
 function handleHeaderSortClick(table, key){
   if(table==='grade'){
     if(teacherSortKey===key) teacherSortDir = -teacherSortDir;
@@ -1619,13 +1607,18 @@ function screenTeacher(){
       '<div class="card"><p class="hint">上面「篩選作業」選一個特定作業，才能看到那份作業的評分進度——不同作業的評分是分開算的，沒辦法合併顯示。</p></div>';
   }
 
+  // 用手機原生的橫向捲動來切換作業：整排作業名稱都排在一起，直接用手指左右滑就能捲，
+  // 想跳去比較遠的那份作業也可以直接點名稱，不用像之前那樣一次只能移動一格。
+  var assignmentChipList = [''].concat(assignments);
+  var assignmentChipsHtml = assignmentChipList.map(function(a){
+    var activeCls = (teacherAssignmentFilter||'')===a ? ' assignment-chip-active' : '';
+    return '<button type="button" class="assignment-chip'+activeCls+'" data-assignment-chip="'+escapeAttr(a)+'">'+(a?escapeHtml(a):'全部作業')+'</button>';
+  }).join('');
   var assignmentSwiperHtml =
-    '<div class="card assignment-swiper">' +
-      '<button type="button" class="assignment-swipe-btn" data-assignment-swipe="-1" aria-label="上一個作業">‹</button>' +
-      '<div class="assignment-swipe-label">'+(teacherAssignmentFilter ? escapeHtml(teacherAssignmentFilter) : '全部作業')+'</div>' +
-      '<button type="button" class="assignment-swipe-btn" data-assignment-swipe="1" aria-label="下一個作業">›</button>' +
+    '<div class="card" style="padding:10px 0">' +
+      '<div class="assignment-chip-scroll">'+assignmentChipsHtml+'</div>' +
     '</div>' +
-    '<p class="hint" style="text-align:center;margin-top:-6px">左右滑動這個區塊，或點兩側箭頭，快速切換作業</p>';
+    '<p class="hint" style="text-align:center;margin-top:-6px">左右滑動切換，或直接點作業名稱</p>';
 
   var configHtml =
     '<div class="card config-card">' +
@@ -2212,8 +2205,8 @@ function attachHandlers(){
       handleHeaderSortClick(sortHeaderEl.getAttribute('data-sort-table'), sortHeaderEl.getAttribute('data-sort-key'));
       return;
     }
-    var swipeBtn = e.target.closest('[data-assignment-swipe]');
-    if(swipeBtn){ handleAssignmentSwipe(parseInt(swipeBtn.getAttribute('data-assignment-swipe'),10)); return; }
+    var chipBtn = e.target.closest('[data-assignment-chip]');
+    if(chipBtn){ teacherAssignmentFilter = chipBtn.getAttribute('data-assignment-chip'); render(); return; }
     if(e.target.closest('#exportCsv')){ handleExportCsv(); return; }
     if(e.target.closest('#refreshData')){ loadTeacherView(); return; }
     if(e.target.closest('#saveConn')){ handleSaveConnection(document.getElementById('app')); return; }
@@ -2289,23 +2282,6 @@ function attachHandlers(){
       if(v) v.textContent = e.target.value;
       return;
     }
-  };
-  // 「作業繳交狀況」上面切換作業的區塊，讓手指可以直接左右滑動切換，
-  // 不用每次都點小箭頭；滑動距離太短（可能只是點擊）就不當滑動處理。
-  root.ontouchstart = function(e){
-    var swiper = e.target.closest('.assignment-swiper');
-    if(swiper && e.touches && e.touches.length===1) assignmentSwipeStartX = e.touches[0].clientX;
-    else assignmentSwipeStartX = null;
-  };
-  root.ontouchend = function(e){
-    if(assignmentSwipeStartX==null) return;
-    var startX = assignmentSwipeStartX;
-    assignmentSwipeStartX = null;
-    var endX = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientX : null;
-    if(endX==null) return;
-    var dx = endX - startX;
-    if(Math.abs(dx) < 40) return;
-    handleAssignmentSwipe(dx < 0 ? 1 : -1);
   };
   root.onsubmit = function(e){
     var form = e.target;
