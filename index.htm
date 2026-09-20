@@ -1879,7 +1879,7 @@ function reportsExportSectionHtml(tv, cfg){
   return (
     '<div class="card">' +
       '<p class="hint">目前跨所有作業合計有 <strong style="color:'+(shortfallCount?'var(--low)':'var(--good)')+'">'+shortfallCount+'</strong> 筆「評分件數未達 '+required+' 件」的記錄。</p>' +
-      '<p class="hint">按下面按鈕，會把「評分未達標名單」和「作業繳交狀況」依座號排序整理好，直接寫進你 Google 試算表裡的兩個新分頁（每次都會整個更新成最新資料，不是累加）。</p>' +
+      '<p class="hint">按下面按鈕，會把網頁上全部的報表都依座號排序整理好，直接寫進你 Google 試算表裡的 6 個分頁——評分未達標名單、作業繳交狀況、評分總表、評分進度、器材借用報表、器材放棄紀錄。方便你在試算表那邊統一總覽、算成績，每次按都會把這 6 個分頁整個更新成最新資料，不是累加。</p>' +
       '<button type="button" class="btn btn-primary" id="exportReportsToSheet" style="width:100%" '+(loading?'disabled':'')+'>'+(loading?'處理中...':'更新試算表報表')+'</button>' +
     '</div>'
   );
@@ -2091,7 +2091,7 @@ function screenTeacher(){
       sortTh('裝置代碼','grade','device',teacherSortKey,teacherSortDir) +
     '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
     reviewerSection +
-    '<h2 class="screen-title" style="font-size:1.1rem">評分未達標／繳交狀況報表</h2>' +
+    '<h2 class="screen-title" style="font-size:1.1rem">匯出到 Google 試算表</h2>' +
     reportsExportSectionHtml(teacherView, cfg) +
     '<h2 class="screen-title" style="font-size:1.1rem" id="section-settings">教師設定</h2>' +
     configHtml +
@@ -2427,7 +2427,7 @@ function handleExportReportsToSheet(){
       if(btn){ btn.disabled = false; btn.textContent = '更新試算表報表'; }
       return;
     }
-    setToast('success', '已更新試算表：評分未達標名單 '+res.shortfallCount+' 筆、作業繳交狀況 '+res.rosterCount+' 人。');
+    setToast('success', '已更新試算表 6 個分頁：評分未達標名單 '+res.shortfallCount+' 筆、作業繳交狀況 '+res.rosterCount+' 人、評分總表 '+res.gradeCount+' 件、評分進度 '+res.progressCount+' 筆、器材借用報表 '+res.equipCount+' 組、器材放棄紀錄 '+res.waiverCount+' 筆。');
     render();
   }).catch(function(e){
     if(btn){ btn.disabled = false; btn.textContent = '更新試算表報表'; }
