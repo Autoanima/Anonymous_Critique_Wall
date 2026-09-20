@@ -237,10 +237,10 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .equip-order-list li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;}
 .equip-order-list li.equip-active{background:var(--accent-soft);font-weight:700;}
 .equip-return-row{transition:background 0.15s;}
-.equip-return-row.equip-return-done{color:var(--good);}
-.equip-return-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
-.equip-return-chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:0.82rem;background:var(--low-soft);color:var(--low);border:1px solid var(--low);}
-.equip-return-chip-ok{background:var(--accent-soft);color:var(--good);border-color:var(--good);}
+.equip-return-row.equip-return-done{opacity:0.7;}
+.equip-confirm-row{padding:6px 8px;border-radius:8px;font-size:0.9rem;}
+.equip-confirm-row.equip-confirm-pending{background:var(--low-soft);}
+.equip-confirm-row.equip-confirm-ok{color:var(--good);}
 .equip-order-edit{display:flex;flex-direction:column;gap:8px;margin-top:10px;}
 .equip-order-edit-row{display:flex;align-items:center;gap:8px;font-size:0.9rem;}
 .equip-absent{opacity:0.5;text-decoration:line-through;}
@@ -341,6 +341,9 @@ var equipmentTickTimer = null;
 var equipmentPollTimer = null;
 // 預設鎖定，避免不小心滑到就改掉全班的計時設定；每次重新整理都會回到鎖定狀態。
 var equipDurationUnlocked = false;
+// 器材歸還勾選的本地暫存，key 是「組名::器材索引」，value 是目前畫面上勾/沒勾——
+// 純本地狀態，按「送出」之前完全不會打 API，見 equipmentReturnChecklistHtml 上面的說明。
+var equipCheckboxDraft = {};
 // 老師指定的固定 8 色順序（由左到右／由上到下），不提供使用者自訂顏色的功能。
 // 這裡改了名字或順序，記得 Code.gs 的 RAINBOW 陣列也要跟著改，
 // 兩邊的顏色名稱要完全對得上，不然舊資料存的名稱在這裡會找不到對應的色號。
@@ -1152,8 +1155,11 @@ function patchEquipmentDisplay(){
   // 打斷老師正在填的教師設定／器材管理表單，可以放心每次都直接整段換新。
   var teacherSlot = document.getElementById('teacherEquipOverviewSlot');
   if(teacherSlot) teacherSlot.innerHTML = teacherEquipmentOverviewHtml(equipmentData);
+  // 這塊裡面的「確認」checkbox是老師勾好、按確認才送出的暫存操作，
+  // 沒有 isEditingFormField() 保護的話，每 6 秒背景輪詢就會整段換新，
+  // 把老師還沒按確認的勾選狀態洗掉，所以要跟表單輸入框一樣受保護。
   var teacherReturnSlot = document.getElementById('teacherEquipReturnSlot');
-  if(teacherReturnSlot) teacherReturnSlot.innerHTML = teacherEquipmentReturnReportHtml(equipmentData);
+  if(teacherReturnSlot && !isEditingFormField()) teacherReturnSlot.innerHTML = teacherEquipmentReturnReportHtml(equipmentData);
   var teacherControlsSlot = document.getElementById('teacherEquipControlsSlot');
   if(teacherControlsSlot) teacherControlsSlot.innerHTML = equipStartPauseButtonsHtml(equipmentData);
   var teacherMiniSlot = document.getElementById('teacherEquipMiniSlot');
@@ -1287,7 +1293,6 @@ function screenEquipment(){
   } else if(state.done){
     timelineSection =
       '<div class="card equip-current" style="border-left:8px solid var(--good)">' +
-        '<p class="equip-turn-label">本輪已經全部使用完畢</p>' +
         '<p class="hint">如果要再跑一輪，請跟老師反應，由老師「重新排定順序」重新開始。</p>' +
         timelineHtml(state) +
       '</div>';
@@ -1314,24 +1319,42 @@ function screenEquipment(){
  * 情境是下課時大家趕著走，能少一個步驟就少一個。任何看得到這頁的人都能勾，
  * 不需要教師密語，是跟評分/交作品一樣的課堂信任機制。
  */
+/**
+ * 勾選只是本地暫存（equipCheckboxDraft），不會馬上打 API——避免每6秒一次的
+ * 背景輪詢／整頁重繪跟「點一下就送出」的網路延遲互相干擾，看起來像一直在跳動。
+ * 要等按「送出」才真的把這批狀態存到伺服器，同時記下是誰按的（要對這次回報負責）。
+ * 已經被老師確認過的項目會鎖住不能再改，要改的話請老師先在他那邊處理。
+ */
 function equipmentReturnChecklistHtml(eq, group){
   var items = eq.itemTypes || [];
   if(!items.length) return '';
-  var returned = group.equipmentReturned || [];
-  var allBack = items.length>0 && items.every(function(_, i){ return !!returned[i]; });
+  var statuses = group.equipmentStatus || [];
+  var hasPendingChange = false;
   var rows = items.map(function(name, i){
-    var back = !!returned[i];
-    return '<label class="toggle-row equip-return-row'+(back?' equip-return-done':'')+'">' +
-      '<input type="checkbox" class="equip-return-cb" data-group="'+escapeAttr(group.name)+'" data-index="'+i+'" '+(back?'checked':'')+'> ' +
-      escapeHtml(name)+(back?'（已歸還）':'') +
+    var st = statuses[i] || {};
+    var draftKey = group.name+'::'+i;
+    var draftVal = equipCheckboxDraft.hasOwnProperty(draftKey) ? equipCheckboxDraft[draftKey] : !!st.reported;
+    if(draftVal !== !!st.reported) hasPendingChange = true;
+    var locked = !!st.confirmed;
+    var statusText = '';
+    if(st.confirmed){
+      statusText = '　<span style="color:var(--good);font-weight:700">已確認歸還</span>';
+    } else if(st.reported){
+      statusText = '　<span style="color:var(--warn)">已回報，等老師確認（'+escapeHtml(st.reportedBySeat)+'號 '+escapeHtml(st.reportedByName)+'）</span>';
+    }
+    return '<label class="toggle-row equip-return-row'+(locked?' equip-return-done':'')+'">' +
+      '<input type="checkbox" class="equip-return-cb" data-group="'+escapeAttr(group.name)+'" data-index="'+i+'" '+(draftVal?'checked':'')+(locked?' disabled':'')+'> ' +
+      escapeHtml(name) + statusText +
     '</label>';
   }).join('');
+  var allConfirmed = statuses.length>0 && statuses.every(function(st){ return st.confirmed; });
   return (
-    '<div class="card" style="margin-top:10px'+(allBack?';border-color:var(--good)':'')+'">' +
+    '<div class="card" style="margin-top:10px'+(allConfirmed?';border-color:var(--good)':'')+'">' +
       '<h2 class="screen-title" style="font-size:1rem">本組器材</h2>' +
-      '<p class="hint">用完歸還時勾起來，老師可以馬上看到還缺什麼。</p>' +
+      '<p class="hint">用完歸還時勾起來，按「送出」老師才會看到；按送出的人要對這次回報負責，會一起記錄下來。</p>' +
       rows +
-      (allBack ? '<p class="hint" style="color:var(--good);font-weight:700">已全部歸還，謝謝！</p>' : '') +
+      (hasPendingChange ? '<button type="button" class="btn btn-primary" id="equipReportReturned" style="width:100%;margin-top:10px">送出目前的勾選</button>' : '') +
+      (allConfirmed ? '<p class="hint" style="color:var(--good);font-weight:700">已全部歸還並確認，謝謝！</p>' : '') +
     '</div>'
   );
 }
@@ -1378,6 +1401,11 @@ function teacherEquipmentOverviewHtml(eq){
  * 老師下課前要看的：哪一組還有什麼器材沒還、要找誰要——
  * 組長跟最後輪值的人都列出來，這兩個通常是最後拿著器材的人，比較好問。
  */
+/**
+ * 老師下課前要看的：哪一組還有什麼器材沒還、是誰回報的、要找誰要——
+ * 三種狀態分開顯示：還沒回報（灰）、學生已回報等確認（橘，附回報人）、已確認（綠）。
+ * 勾選要確認的項目後按「確認」一次送出，雙方都動作過才算真正完成。
+ */
 function teacherEquipmentReturnReportHtml(eq){
   if(!eq || !eq.groups || !eq.groups.length) return '';
   var items = eq.itemTypes || [];
@@ -1386,23 +1414,33 @@ function teacherEquipmentReturnReportHtml(eq){
     var leaderSeat = leaderSeatFor(g);
     var presentOrder = presentOrderFor(g);
     var lastUser = presentOrder.length ? presentOrder[presentOrder.length-1] : null;
-    var returned = g.equipmentReturned || [];
-    var missing = [];
+    var statuses = g.equipmentStatus || [];
+    var pendingCount = 0;
     var itemRows = items.map(function(name, i){
-      var back = !!returned[i];
-      if(!back) missing.push(name);
-      return '<span class="equip-return-chip'+(back?' equip-return-chip-ok':'')+'">'+escapeHtml(name)+(back?' ✓':' ✗')+'</span>';
+      var st = statuses[i] || {};
+      if(st.confirmed){
+        return '<div class="equip-confirm-row equip-confirm-ok">'+escapeHtml(name)+'　✓ 已確認</div>';
+      }
+      if(st.reported){
+        pendingCount++;
+        return '<label class="toggle-row equip-confirm-row equip-confirm-pending">' +
+          '<input type="checkbox" class="equip-confirm-cb" data-index="'+i+'"> ' +
+          escapeHtml(name)+'　已回報（'+escapeHtml(st.reportedBySeat)+'號 '+escapeHtml(st.reportedByName)+'）' +
+        '</label>';
+      }
+      return '<div class="equip-confirm-row">'+escapeHtml(name)+'　尚未回報</div>';
     }).join('');
+    var allDone = statuses.length>0 && statuses.every(function(st){ return st.confirmed; });
+    var anyPendingOrMissing = statuses.some(function(st){ return !st.confirmed; });
     return (
-      '<div class="card" style="margin-top:10px'+(missing.length?';border-color:var(--warn)':';border-color:var(--good)')+'">' +
+      '<div class="card" style="margin-top:10px'+(allDone?';border-color:var(--good)':(anyPendingOrMissing?';border-color:var(--warn)':''))+'">' +
         '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+
           '　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'—')+
           '　最後輪值：'+escapeHtml(lastUser?(lastUser.seat+' 號 '+lastUser.name):'—')+
         '</h3>' +
-        '<div class="equip-return-chips">'+itemRows+'</div>' +
-        (missing.length
-          ? '<p class="hint" style="color:var(--warn);font-weight:700">還沒還：'+missing.map(escapeHtml).join('、')+'</p>'
-          : '<p class="hint" style="color:var(--good);font-weight:700">已全部歸還</p>') +
+        itemRows +
+        (pendingCount>0 ? '<button type="button" class="btn btn-primary equip-confirm-btn" data-group="'+escapeAttr(g.name)+'" style="width:100%;margin-top:8px">確認勾選的項目已收到</button>' : '') +
+        (allDone ? '<p class="hint" style="color:var(--good);font-weight:700">已全部歸還並確認</p>' : '') +
       '</div>'
     );
   }).join('');
@@ -1669,6 +1707,34 @@ function handleEquipSaveItemTypes(form){
 function handleEquipResetReturned(){
   if(!confirm('確定要把所有組別的器材歸還狀態整批重設成「還沒還」嗎？不會動到輪值順序和計時進度。')) return;
   handleEquipAction('equipmentResetReturned');
+}
+/** 老師按「確認勾選的項目已收到」——只送這張卡片裡目前有勾的項目索引。 */
+function handleEquipConfirmReturned(groupName, cardEl){
+  var confirms = [];
+  cardEl.querySelectorAll('.equip-confirm-cb').forEach(function(cb){
+    confirms[parseInt(cb.getAttribute('data-index'),10)] = cb.checked;
+  });
+  handleEquipAction('equipmentConfirmReturned', { groupName: groupName, confirms: confirms });
+}
+/** 學生按「送出目前的勾選」——把 equipCheckboxDraft 裡這一組的暫存狀態送到伺服器，記下是誰送的。 */
+function handleEquipReportReturned(group){
+  if(!hasIdentity()){ alert('請先在上面設定座號和姓名，才能送出器材回報。'); return; }
+  var items = (equipmentData && equipmentData.itemTypes) || [];
+  var statuses = items.map(function(_, i){
+    var key = group.name+'::'+i;
+    var st = (group.equipmentStatus||[])[i] || {};
+    return equipCheckboxDraft.hasOwnProperty(key) ? equipCheckboxDraft[key] : !!st.reported;
+  });
+  apiGet('equipmentReportReturned', { groupName: group.name, statuses: statuses, reporterSeat: getMySeat(), reporterName: getMyName() }).then(function(res){
+    if(res.ok){
+      equipmentData = res.equipment;
+      items.forEach(function(_, i){ delete equipCheckboxDraft[group.name+'::'+i]; });
+      setToast('success','已送出，等老師確認收到就完成囉。');
+    } else {
+      setToast('error','送出失敗（'+(res.error||'unknown')+'）');
+    }
+    render();
+  }).catch(function(err){ setToast('error','送出失敗：'+err.message); render(); });
 }
 function handleEquipStart(){
   handleEquipAction('equipmentStart');
@@ -2497,6 +2563,13 @@ function attachHandlers(){
     if(e.target.closest('#equipSaveDurationRange')){ handleEquipSetDurationRange(document.getElementById('app')); return; }
     if(e.target.closest('#equipSaveItemTypes')){ handleEquipSaveItemTypes(document.getElementById('app')); return; }
     if(e.target.closest('#equipResetReturned')){ handleEquipResetReturned(); return; }
+    if(e.target.closest('#equipReportReturned')){
+      var myGroup = findMyGroup(equipmentData);
+      if(myGroup) handleEquipReportReturned(myGroup);
+      return;
+    }
+    var confirmBtn = e.target.closest('.equip-confirm-btn');
+    if(confirmBtn){ handleEquipConfirmReturned(confirmBtn.getAttribute('data-group'), confirmBtn.closest('.card')); return; }
     if(e.target.closest('#equipStartPauseToggle')){ handleEquipStartPauseToggle(); return; }
   };
   root.onchange = function(e){
@@ -2511,10 +2584,9 @@ function attachHandlers(){
     if(e.target.id==='equipDurationUnlock'){ equipDurationUnlocked = e.target.checked; render(); return; }
     if(e.target.id==='equipDurationSlider'){ handleEquipQuickDuration(parseInt(e.target.value,10) - (equipmentData?equipmentData.perPersonMinutes:6)); return; }
     if(e.target.classList && e.target.classList.contains('equip-return-cb')){
-      apiGet('equipmentToggleReturned', { groupName: e.target.getAttribute('data-group'), index: e.target.getAttribute('data-index') }).then(function(res){
-        if(res.ok){ equipmentData = res.equipment; }
-        render();
-      }).catch(function(err){ setToast('error','操作失敗：'+err.message); render(); });
+      var draftKey = e.target.getAttribute('data-group')+'::'+e.target.getAttribute('data-index');
+      equipCheckboxDraft[draftKey] = e.target.checked;
+      render();
       return;
     }
   };
