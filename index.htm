@@ -57,6 +57,7 @@ button,input,textarea{font-family:inherit;}
 .navbtn{flex:1;padding:10px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);font-size:0.85rem;font-weight:500;cursor:pointer;}
 .navbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;}
 .navbtn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+.navbtn-select{-webkit-appearance:none;appearance:none;text-align:center;text-align-last:center;padding-right:8px;}
 
 .content{padding-top:20px;display:flex;flex-direction:column;gap:16px;}
 .screen-title{font-family:'Noto Serif TC',serif;font-size:1.4rem;margin:0;text-wrap:balance;}
@@ -317,6 +318,9 @@ var identityEditing = false;
 var assignmentsList = []; // 從 home/gallery/teacherFetch 回應同步過來
 var reviewAssignment = null; // null = 還沒選要評哪個作業
 var teacherAssignmentFilter = '';
+// 點名名單的排序方式：'seat'=依座號（預設），'order'=依這組的轉圈順序；
+// 存點名結果之後自動切成 'order'，方便直接對照剛排好的輪值順序，但隨時可以切回座號排序。
+var attendanceSortMode = 'seat';
 // 兩張表各自獨立的排序狀態：null 代表還沒點過任何欄位標題，用預設的座號排序。
 var teacherSortKey = null, teacherSortDir = 1;
 var reviewerSortKey = null, reviewerSortDir = 1;
@@ -379,6 +383,17 @@ function toEmbed(u){
   var m = u.match(/\/d\/([a-zA-Z0-9_-]{10,})/) || u.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
   if(m) return { kind:'drive', src:'https://drive.google.com/file/d/'+m[1]+'/preview' };
   return { kind:'link', src:u };
+}
+/**
+ * 自己上傳的圖片存的是 Google 的縮圖服務網址（.../thumbnail?id=...&sz=w1600），
+ * 縮圖尺寸是網址參數，可以直接改。同一張圖在小格子（作品牆格狀縮圖、總表小圖）
+ * 用小尺寸、在投影/燈箱放大看用大尺寸，瀏覽器才不用每張都下載滿版的 1600px圖——
+ * 學生自己貼的外部圖片網址就沒有這個參數可以改，原樣輸出。
+ */
+function driveThumbSrc(url, size){
+  if(!url || !/\/thumbnail\?/i.test(url)) return url;
+  if(/[?&]sz=/i.test(url)) return url.replace(/([?&]sz=)[^&]*/i, '$1w'+size);
+  return url + (url.indexOf('?')>=0 ? '&' : '?') + 'sz=w'+size;
 }
 function uid(prefix){ return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 
@@ -615,7 +630,7 @@ function checklistHtml(){
     '</li>';
     var detailRows = subsForA.map(function(s){
       var embed = toEmbed(s.driveLink);
-      var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+      var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(driveThumbSrc(embed.src,100))+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
       return '<li class="mine-item mine-item-detail">' + thumb +
         '<span class="mine-info">'+escapeHtml(s.title||'')+'</span>' +
         '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>' +
@@ -845,9 +860,13 @@ function galleryMetaHtml(r, scoreVal){
   if(galleryShowScores) bits.push('<span class="gallery-score">'+(scoreVal==null?'—':scoreVal.toFixed(2))+'</span>');
   return bits.join(' ');
 }
-function galleryImageHtml(r, tall){
+/** grid=true 時是作品牆格狀縮圖，故意要小張一點；投影/單張顯示（grid 沒帶或 false）就要原本的大尺寸。 */
+function galleryImageHtml(r, grid){
   var embed = toEmbed(r.driveLink);
-  if(embed && embed.kind==='image') return '<img src="'+escapeAttr(embed.src)+'" loading="lazy" alt="">';
+  if(embed && embed.kind==='image'){
+    var src = grid ? driveThumbSrc(embed.src, 400) : embed.src;
+    return '<img src="'+escapeAttr(src)+'" loading="lazy" alt="">';
+  }
   if(embed && embed.kind==='drive') return '<iframe src="'+escapeAttr(embed.src)+'" loading="lazy"></iframe>';
   return '<p class="hint" style="padding:16px">（無法預覽）</p>';
 }
@@ -880,7 +899,7 @@ function screenGallery(){
     var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
     var aText = assignmentTextColorFor(galleryData.assignments, r.assignment);
     return '<div class="gallery-card" data-idx="'+i+'" style="border-left-color:'+aColor+'">' +
-      '<div class="gallery-img">'+galleryImageHtml(r)+'</div>' +
+      '<div class="gallery-img">'+galleryImageHtml(r, true)+'</div>' +
       '<div class="gallery-meta"><span class="gallery-assignment-chip" style="background:'+aColor+';color:'+aText+'">'+escapeHtml(r.assignment||'未分類')+'</span>'+galleryMetaHtml(r, scoreVal)+'</div>' +
     '</div>';
   }).join('');
@@ -917,7 +936,7 @@ function galleryTableHtml(rows){
       return '<td class="num">'+(galleryShowScores ? (v==null?'—':v.toFixed(1)) : '—')+'</td>';
     }).join('');
     var embed = toEmbed(r.driveLink);
-    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(driveThumbSrc(embed.src,100))+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
     var nameCell = (galleryShowNames && r.studentName) ? escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName) : '—';
     return '<tr>' +
       '<td class="num">'+(i+1)+'</td>' +
@@ -945,7 +964,7 @@ function slideshowHtml(){
   var showRadar = galleryShowScores && hasScores;
   var radarBox = showRadar
     ? radarChartSvg(galleryData.criteria, r.perCrit, 320, scale)
-    : '<div style="color:rgba(255,255,255,0.6);text-align:center;font-size:calc(1.1rem * '+scale+');line-height:1.6;padding:0 12px">' +
+    : '<div style="color:rgba(255,255,255,0.6);text-align:left;font-size:calc(1.1rem * '+scale+');line-height:1.6;padding:0 12px">' +
         (hasScores ? '分數尚未公開，<br>達到公開門檻後才會顯示雷達圖。' : '這件作品目前收到的評分還不夠，<br>尚無法顯示雷達圖。') +
       '</div>';
   return (
@@ -1085,18 +1104,6 @@ function patchEquipmentDisplay(){
   if(teacherMiniSlot) teacherMiniSlot.innerHTML = teacherEquipMiniHtml(equipmentData);
   var durationSlot = document.getElementById('equipDurationQuickSlot');
   if(durationSlot && !isEditingFormField()) durationSlot.innerHTML = equipDurationQuickHtml(equipmentData);
-  var appEl = document.getElementById('app');
-  var existingFloat = document.getElementById('floatPauseBtn');
-  var wantFloat = floatingPauseHtml();
-  if(appEl && wantFloat && !existingFloat){
-    appEl.insertAdjacentHTML('beforeend', wantFloat);
-  } else if(!wantFloat && existingFloat){
-    existingFloat.remove();
-  } else if(wantFloat && existingFloat){
-    var tmp = document.createElement('div');
-    tmp.innerHTML = wantFloat;
-    existingFloat.replaceWith(tmp.firstChild);
-  }
 }
 function isEditingFormField(){
   var el = document.activeElement;
@@ -1308,6 +1315,22 @@ function parseGroupsText(text){
  * 遲到的人只要回來這裡重新勾選「有來」再存一次，就會馬上排回輪值順序，
  * 不需要重新排定順序或做任何其他操作。
  */
+/** 依目前的排序模式，把一組的成員排出顯示順序：'order' 時照轉圈順序（不在順序裡的人排最後）。 */
+function sortedAttendanceMembers(g, mode){
+  var members = g.members.slice();
+  if(mode==='order'){
+    var idxBySeat = {};
+    (g.order||[]).forEach(function(p,i){ idxBySeat[normSeat(p.seat)] = i; });
+    members.sort(function(a,b){
+      var ai = idxBySeat.hasOwnProperty(normSeat(a.seat)) ? idxBySeat[normSeat(a.seat)] : Infinity;
+      var bi = idxBySeat.hasOwnProperty(normSeat(b.seat)) ? idxBySeat[normSeat(b.seat)] : Infinity;
+      return ai!==bi ? ai-bi : seatNumFor(a.seat)-seatNumFor(b.seat);
+    });
+  } else {
+    members.sort(function(a,b){ return seatNumFor(a.seat)-seatNumFor(b.seat); });
+  }
+  return members;
+}
 function equipAttendanceHtml(eq){
   if(!eq){
     return '<div class="card"><p class="hint">載入中...</p></div>';
@@ -1315,8 +1338,10 @@ function equipAttendanceHtml(eq){
   if(!eq.groups || !eq.groups.length){
     return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材輪值管理」新增分組名單。</p></div>';
   }
+  var mode = attendanceSortMode;
   var groupsHtml = eq.groups.map(function(g){
-    var attRows = g.members.map(function(m){
+    var members = sortedAttendanceMembers(g, mode);
+    var attRows = members.map(function(m){
       return '<label class="toggle-row"><input type="checkbox" class="equip-att" data-group="'+escapeAttr(g.name)+'" data-seat="'+escapeAttr(m.seat)+'" '+(m.present?'checked':'')+'> '+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+'</label>';
     }).join('');
     return (
@@ -1329,6 +1354,10 @@ function equipAttendanceHtml(eq){
   return (
     '<div class="card">' +
       '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材輪值的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。開始／暫停計時的按鈕放在最上面，隨時都點得到。</p>' +
+      '<div class="cta-row">' +
+        '<button type="button" class="btn '+(mode==='seat'?'btn-primary':'btn-accent')+'" data-attendance-sort="seat">依座號排序</button>' +
+        '<button type="button" class="btn '+(mode==='order'?'btn-primary':'btn-accent')+'" data-attendance-sort="order">依分組順序排序</button>' +
+      '</div>' +
       groupsHtml +
       '<button type="button" class="btn btn-primary" id="equipSaveAttendance" style="margin-top:10px;width:100%">儲存點名結果</button>' +
     '</div>'
@@ -1373,13 +1402,28 @@ function equipDurationQuickHtml(eq){
     '分' +
   '</span>';
 }
-/** 開始/暫停全班計時的按鈕，跟下面的跳轉連結收在同一橫排裡，字盡量簡短。 */
+/**
+ * 教師頁頂端導覽列上的作業切換器，佔掉原本「開始」按鈕騰出來的位置。
+ * 跟下面「作業繳交狀況」共用同一個 teacherAssignmentFilter，切這裡下面的
+ * 報表（含評分進度）會跟著變，不用捲到下面才能換作業。
+ */
+function teacherHeaderAssignmentSwitcherHtml(){
+  var assignments = (teacherView && teacherView.config && teacherView.config.assignments) || [];
+  if(!assignments.length) return '';
+  var options = '<option value="">全部作業</option>' +
+    assignments.map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(teacherAssignmentFilter===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
+  return '<select id="teacherHeaderAssignmentFilter" class="navbtn navbtn-select">'+options+'</select>';
+}
+/** 開始／暫停／繼續合併成同一顆按鈕：沒開始過就是「開始」，開始了就在暫停跟繼續之間切換。 */
 function equipStartPauseButtonsHtml(eq){
+  var started = !!(eq && eq.startedAt);
   var paused = !!(eq && eq.pausedAt);
-  return (
-    '<button type="button" class="navbtn" id="equipStart">開始</button>' +
-    '<button type="button" class="navbtn" id="equipPauseToggle">'+(paused?'▶ 繼續':'⏸ 暫停')+'</button>'
-  );
+  var label = !started ? '開始' : (paused ? '▶ 繼續' : '⏸ 暫停');
+  return '<button type="button" class="navbtn" id="equipStartPauseToggle">'+label+'</button>';
+}
+function handleEquipStartPauseToggle(){
+  if(!equipmentData || !equipmentData.startedAt) handleEquipStart();
+  else handleEquipPauseToggle();
 }
 function equipmentAdminHtml(){
   if(!equipmentData){
@@ -1433,11 +1477,6 @@ function equipmentAdminHtml(){
     '</div>'
   );
 }
-function floatingPauseHtml(){
-  if(!teacherAuthPasscode() || !equipmentData || !equipmentData.startedAt) return '';
-  var paused = !!equipmentData.pausedAt;
-  return '<button type="button" id="floatPauseBtn" class="float-pause-btn">'+(paused?'▶ 繼續全班計時':'⏸ 暫停全班計時')+'</button>';
-}
 /** 點小縮圖時放大看清楚，跟作品牆的全螢幕輪播展示是兩回事，這裡單純只是放大單張圖片。 */
 /**
  * 交作品送出後蓋在整個畫面上的遮罩：讓學生知道「還在處理，不是卡住」，
@@ -1485,6 +1524,9 @@ function handleEquipSaveAttendance(){
     att[g] = att[g] || {};
     att[g][seat] = cb.checked;
   });
+  // 存完點名後直接切成「依分組順序排序」，方便老師馬上對照剛排好的輪值順序；
+  // 隨時都可以再按上面的按鈕切回座號排序。
+  attendanceSortMode = 'order';
   handleEquipAction('equipmentSetAttendance', { attendance: att });
 }
 function handleEquipQuickDuration(delta){
@@ -1591,7 +1633,7 @@ function screenTeacher(){
       return '<td class="num">'+(v==null?'—':v.toFixed(1))+'</td>';
     }).join('');
     var embed = toEmbed(r.driveLink);
-    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(embed.src)+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
+    var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(driveThumbSrc(embed.src,100))+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
     var underReviewed = r.count < required;
     return '<tr>' +
       '<td class="num">'+(namesHidden ? '●' : escapeHtml(r.studentSeat))+'</td>' +
@@ -1766,6 +1808,7 @@ function navHtml(role){
         '<a href="#section-equipment" class="navbtn">器材輪值</a>' +
         '<a href="#section-attendance" class="navbtn">點名</a>' +
         '<a href="#section-settings" class="navbtn">其他設定</a>' +
+        '<span id="teacherHeaderAssignmentSlot" style="display:contents">' + teacherHeaderAssignmentSwitcherHtml() + '</span>' +
         '<span id="teacherEquipControlsSlot" style="display:contents">' + equipStartPauseButtonsHtml(equipmentData) + '</span>' +
       '</nav>' +
     '</header>';
@@ -1786,7 +1829,6 @@ function render(){
         : '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button></footer>') +
     '</div>' +
     slideshowHtml() +
-    floatingPauseHtml() +
     lightboxHtml() +
     submitOverlayHtml();
   document.getElementById('app').innerHTML = html;
@@ -2303,15 +2345,17 @@ function attachHandlers(){
     }
     if(e.target.closest('#equipSaveGroups')){ handleEquipSaveGroups(); return; }
     if(e.target.closest('#equipSaveAttendance')){ handleEquipSaveAttendance(); return; }
+    var attSortBtn = e.target.closest('[data-attendance-sort]');
+    if(attSortBtn){ attendanceSortMode = attSortBtn.getAttribute('data-attendance-sort'); render(); return; }
     if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
     if(e.target.closest('#equipSaveDurationRange')){ handleEquipSetDurationRange(document.getElementById('app')); return; }
-    if(e.target.closest('#equipStart')){ handleEquipStart(); return; }
-    if(e.target.closest('#equipPauseToggle') || e.target.closest('#floatPauseBtn')){ handleEquipPauseToggle(); return; }
+    if(e.target.closest('#equipStartPauseToggle')){ handleEquipStartPauseToggle(); return; }
   };
   root.onchange = function(e){
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
     if(e.target.id==='gallerySort'){ gallerySort = e.target.value; render(); return; }
     if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; render(); return; }
+    if(e.target.id==='teacherHeaderAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
     if(e.target.id==='slideAssignmentFilter'){ galleryAssignment = e.target.value; slideshowIndex = 0; render(); return; }
     if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; galleryNamesTouched = true; render(); return; }
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; galleryScoresTouched = true; render(); return; }
