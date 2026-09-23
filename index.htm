@@ -585,6 +585,14 @@ function connectionSectionHtml(){
          '<label class="field"><span>學生用連結</span><input id="conn_share" class="readonly-field" readonly value="'+escapeAttr(shareLink)+'"></label>' +
          '<button type="button" class="btn btn-accent" id="copyShare">複製學生連結</button>')
         : '<p class="hint">還沒設定，請先部署 Google Apps Script 並貼上取得的網址。</p>') +
+      '<details style="margin-top:14px">' +
+        '<summary class="hint" style="cursor:pointer">為什麼這個網址不能直接寫進網頁原始碼裡？</summary>' +
+        '<p class="hint" style="margin-top:8px;line-height:1.7">' +
+          'index.htm 放在公開的 GitHub repo，任何人都看得到原始碼，就算之後改掉也還留在 commit 歷史裡查得到。如果把這個網址寫死在程式碼裡，等於公開給全世界，而不是只給您發連結的那些學生。' +
+          '評分／交作品／器材借還這些學生端動作，設計上刻意不用密語驗證（低風險課堂信任機制），只要有這個網址就能呼叫；老師端動作雖然有密語保護，但網址一旦公開，等於誰都能無限次亂猜密語，風險比現在高很多。' +
+          '現在的做法（貼在這裡、按「複製學生連結」分享）已經把網址範圍限制在您實際發出去的那份連結，不會被搜尋引擎或路人找到，所以請每次換裝置都自己貼一次，不要讓網址進到公開的程式碼裡。' +
+        '</p>' +
+      '</details>' +
     '</div>'
   );
 }
