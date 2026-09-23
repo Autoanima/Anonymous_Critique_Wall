@@ -2216,6 +2216,27 @@ function loadTeacherView(){
     if(localStorage.getItem('crit.teacherAutoRefresh')==='1') setTeacherAutoRefresh(true);
   }).catch(function(e){ setToast('error','連線失敗：'+e.message); setRole('home'); render(); });
 }
+/**
+ * 「連接設定」一旦已經連過線（apiUrl 有值），就要跟教師專區一樣輸入教師密語才能打開／修改，
+ * 避免學生手滑點到頁尾的連結、亂改掉資料庫網址害自己（或別人重新點學生連結前）連不上。
+ * 還沒連過線的時候（第一次設定）就不擋，不然沒有網址根本沒辦法驗證密語。
+ */
+function loadConnectScreen(){
+  if(!apiUrl){ render(); return; }
+  if(teacherAuthPasscode()){ render(); return; }
+  var input = prompt('這個網頁已經連接資料庫了，要修改連接設定請先輸入教師密語：');
+  if(input===null){ setRole('home'); render(); return; }
+  apiGet('teacherFetch', { passcode: input }).then(function(res){
+    if(!res.ok){
+      setToast('error','密語不對，請重新點「連接設定」輸入一次。');
+      setRole('home');
+      render();
+      return;
+    }
+    setTeacherAuthPasscode(input);
+    render();
+  }).catch(function(e){ setToast('error','驗證失敗：'+e.message); setRole('home'); render(); });
+}
 var teacherAutoRefreshTimer = null;
 /**
  * 自動重新整理故意不走 loadTeacherView() 那套「先清空、顯示載入中」的做法，
@@ -2264,6 +2285,7 @@ function goTo(role){
   else if(role==='gallery') loadGallery();
   else if(role==='equipment') loadEquipment();
   else if(role==='teacher') loadTeacherView();
+  else if(role==='connect') loadConnectScreen();
   else render();
 }
 
