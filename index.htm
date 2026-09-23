@@ -313,8 +313,6 @@ var galleryData = null; // { rows, criteria, assignments }
 var gallerySort = 'overall';
 var galleryShowNames = false;
 var galleryShowScores = false;
-var galleryNamesTouched = false; // 使用者有沒有自己手動點過「顯示姓名」——沒點過的話，只要老師開放了就預設直接顯示
-var galleryScoresTouched = false; // 同上，對應「顯示分數」
 var galleryAssignment = null; // null = 還沒選，選過之後固定成某個作業名稱或 '' (全部)
 // 格狀縮圖牆一次只渲染這麼多張，捲到底按「載入更多」才加渲染下一批，
 // 避免作品數一多（例如全班 30 人、好幾份作業累積幾百件）手機記憶體被同時解碼的
@@ -934,14 +932,12 @@ function screenGallery(){
   // 姓名開放是每份作業分開設定的，分數則是滿一定評分人數才自動開放——
   // 伺服器已經照每一列自己的狀況決定要不要附姓名／分數，這裡只要看「目前篩選出來的
   // 這些作品」裡有沒有任何一筆真的帶了資料，就知道這兩個開關現在有沒有意義可以打開。
-  // 「有沒有意義」判斷出來以後：使用者自己手動點過開關之前，只要一開放就直接預設顯示，
-  // 不用使用者自己再點一次；使用者點過之後，就照使用者自己的選擇，除非又變回沒東西可顯示。
+  // 門檻到了也不會自動勾起來，一律預設關閉，要學生自己主動點開關才會顯示；
+  // 沒東西可顯示時（門檻還沒到）則強制關閉，避免顯示一個沒意義的勾選框。
   var revealed = rows.some(function(r){ return r.studentName != null; });
   if(!revealed) galleryShowNames = false;
-  else if(!galleryNamesTouched) galleryShowNames = true;
   var scoresRevealed = rows.some(function(r){ return r.overall != null; });
   if(!scoresRevealed) galleryShowScores = false;
-  else if(!galleryScoresTouched) galleryShowScores = true;
   var scoreThreshold = galleryData.scoreRevealThreshold;
   var assignmentOptions = '<option value="">全部作業</option>' +
     (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
@@ -976,8 +972,8 @@ function screenGallery(){
       '<label class="field"><span>哪一份作業</span><select id="galleryAssignment">'+assignmentOptions+'</select></label>' +
       '<label class="field"><span>排序依據</span><select id="gallerySort">'+sortOptions+'</select></label>' +
       '<div class="gallery-toggles">' +
-        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（滿 '+(galleryData.namesRevealThreshold!=null?galleryData.namesRevealThreshold:25)+' 人評分，或老師開放這份作業，才能開啟顯示）')+'</label>' +
-        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+(scoresRevealed?'':' disabled')+'> 顯示分數'+(scoresRevealed?'':'（滿'+(scoreThreshold!=null?scoreThreshold:15)+'人評分才會自動公開）')+'</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（滿 '+(galleryData.namesRevealThreshold!=null?galleryData.namesRevealThreshold:15)+' 人評分，或老師開放這份作業，才能開啟顯示）')+'</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+(scoresRevealed?'':' disabled')+'> 顯示分數／雷達圖'+(scoresRevealed?'':'（滿'+(scoreThreshold!=null?scoreThreshold:10)+'人評分才會自動公開）')+'</label>' +
       '</div>' +
       '<button type="button" class="btn btn-primary" id="startSlideshow" '+(rows.length?'':'disabled')+'>播放展示</button>' +
     '</div>' +
@@ -2031,8 +2027,8 @@ function screenTeacher(){
             return '<label class="field" style="margin-top:6px"><span class="hint">'+escapeHtml(a)+'</span><textarea class="cfg-desc-textarea" data-assignment="'+escapeAttr(a)+'" style="min-height:70px">'+escapeHtml(textMapLookup(cfg.assignmentDescriptions, a))+'</textarea></label>';
           }).join('') +
         '</div>' +
-        '<label class="field"><span>分數要滿幾人評分才自動對全班公開（在這之前分數對所有人都先隱藏，避免太早看到分數互相影響）</span><input type="number" min="0" max="200" id="cfg_scoreThreshold" value="'+(cfg.scoreRevealThreshold!=null?cfg.scoreRevealThreshold:15)+'"></label>' +
-        '<label class="field"><span>作品要滿幾人評分才自動公開作者姓名（不用等老師手動開放那份作業）</span><input type="number" min="0" max="200" id="cfg_namesThreshold" value="'+(cfg.namesRevealThreshold!=null?cfg.namesRevealThreshold:25)+'"></label>' +
+        '<label class="field"><span>分數（含雷達圖）要滿幾人評分才自動對全班公開（在這之前分數對所有人都先隱藏，避免太早看到分數互相影響；達門檻後預設仍是關閉的，要學生自己勾選「顯示分數」才會看到）</span><input type="number" min="0" max="200" id="cfg_scoreThreshold" value="'+(cfg.scoreRevealThreshold!=null?cfg.scoreRevealThreshold:10)+'"></label>' +
+        '<label class="field"><span>作品要滿幾人評分才自動公開作者姓名（不用等老師手動開放那份作業；達門檻後預設仍是關閉的，要學生自己勾選「顯示姓名」才會看到）</span><input type="number" min="0" max="200" id="cfg_namesThreshold" value="'+(cfg.namesRevealThreshold!=null?cfg.namesRevealThreshold:15)+'"></label>' +
         '<p class="hint">密語驗證在伺服器端做，其他同學看不到。之後隨時可以在上面兩個清單「新增一行」作業或題目，不會影響已經收到的作品和分數；但如果去修改文字、刪除或搬動「既有」的那幾行，可能會讓已經收到的分數對不上，這種情況才建議避免在評分開始後做。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
@@ -2720,8 +2716,8 @@ function attachHandlers(){
     if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; render(); return; }
     if(e.target.id==='teacherHeaderAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
     if(e.target.id==='slideAssignmentFilter'){ galleryAssignment = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; slideshowIndex = 0; render(); return; }
-    if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; galleryNamesTouched = true; render(); return; }
-    if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; galleryScoresTouched = true; render(); return; }
+    if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; render(); return; }
+    if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; render(); return; }
     if(e.target.id==='teacherAutoRefreshToggle'){ setTeacherAutoRefresh(e.target.checked); return; }
     if(e.target.id==='equipDurationUnlock'){ equipDurationUnlocked = e.target.checked; render(); return; }
     if(e.target.id==='equipDurationSlider'){ handleEquipQuickDuration(parseInt(e.target.value,10) - (equipmentData?equipmentData.perPersonMinutes:6)); return; }
