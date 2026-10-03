@@ -486,6 +486,28 @@ function postFormNoRead(action, payload){
   setTimeout(function(){ if(form.parentNode) form.parentNode.removeChild(form); }, 1000);
 }
 
+// 字串雜湊（cyrb53）：用在「同一個人重複交一模一樣的圖」的比對，以及快取資料的 key，不是用來防駭。
+function hashString(str){
+  var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for(var i=0, ch; i<str.length; i++){
+    ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1>>>16), 2246822507) ^ Math.imul(h2 ^ (h2>>>13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2>>>16), 2246822507) ^ Math.imul(h1 ^ (h1>>>13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1>>>0)).toString(36);
+}
+
+// ---------- 先秀上次看到的資料，背景再更新（首頁、作品牆打開不用等那一秒多的空白）----------
+function swrKey(name){ return 'crit.swr.'+name+'.'+hashString(apiUrl||''); }
+function swrLoad(name){
+  try{ var v = localStorage.getItem(swrKey(name)); return v ? JSON.parse(v) : null; }catch(e){ return null; }
+}
+function swrSave(name, data){
+  try{ localStorage.setItem(swrKey(name), JSON.stringify(data)); }catch(e){}
+}
+
 // ---------- 圖片壓縮（避免整張原始照片直接傳給 Apps Script）----------
 function resizeImageFile(file){
   return new Promise(function(resolve, reject){
@@ -946,9 +968,13 @@ function screenGallery(){
   // 沒東西可顯示時（門檻還沒到）則強制關閉，避免顯示一個沒意義的勾選框。
   var revealed = rows.some(function(r){ return r.studentName != null; });
   if(!revealed) galleryShowNames = false;
-  var scoresRevealed = rows.some(function(r){ return r.overall != null; });
+  var scoresRevealed = rows.some(function(r){ return r.unlocked; });
   if(!scoresRevealed) galleryShowScores = false;
-  var scoreThreshold = galleryData.scoreRevealThreshold;
+  var revealRuleText = '要有 '+galleryData.revealMinReviewers+' 位同學各評完 '+galleryData.revealMinReviews+' 件作品';
+  if(galleryAssignment){
+    var doneCount = (galleryData.revealProgress||{})[normAssignment(galleryAssignment)] || 0;
+    revealRuleText += '，目前 '+doneCount+' / '+galleryData.revealMinReviewers+' 位';
+  }
   var assignmentOptions = '<option value="">全部作業</option>' +
     (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
   var sortOptions = '<option value="overall"'+(gallerySort==='overall'?' selected':'')+'>總平均（預設）</option>' +
@@ -982,8 +1008,8 @@ function screenGallery(){
       '<label class="field"><span>哪一份作業</span><select id="galleryAssignment">'+assignmentOptions+'</select></label>' +
       '<label class="field"><span>排序依據</span><select id="gallerySort">'+sortOptions+'</select></label>' +
       '<div class="gallery-toggles">' +
-        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（滿 '+(galleryData.namesRevealThreshold!=null?galleryData.namesRevealThreshold:15)+' 人評分，或老師開放這份作業，才能開啟顯示）')+'</label>' +
-        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+(scoresRevealed?'':' disabled')+'> 顯示分數／雷達圖'+(scoresRevealed?'':'（滿'+(scoreThreshold!=null?scoreThreshold:10)+'人評分才會自動公開）')+'</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryNames" '+(galleryShowNames?'checked':'')+(revealed?'':' disabled')+'> 顯示姓名'+(revealed?'':'（'+revealRuleText+'，或老師開放這份作業，才能開啟顯示）')+'</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="toggleGalleryScores" '+(galleryShowScores?'checked':'')+(scoresRevealed?'':' disabled')+'> 顯示分數／雷達圖'+(scoresRevealed?'':'（'+revealRuleText+'才會開放）')+'</label>' +
       '</div>' +
       '<button type="button" class="btn btn-primary" id="startSlideshow" '+(rows.length?'':'disabled')+'>播放展示</button>' +
     '</div>' +
@@ -2042,8 +2068,8 @@ function screenTeacher(){
             return '<label class="field" style="margin-top:6px"><span class="hint">'+escapeHtml(a)+'</span><textarea class="cfg-desc-textarea" data-assignment="'+escapeAttr(a)+'" style="min-height:70px">'+escapeHtml(textMapLookup(cfg.assignmentDescriptions, a))+'</textarea></label>';
           }).join('') +
         '</div>' +
-        '<label class="field"><span>分數（含雷達圖）要滿幾人評分才自動對全班公開（在這之前分數對所有人都先隱藏，避免太早看到分數互相影響；達門檻後預設仍是關閉的，要學生自己勾選「顯示分數」才會看到）</span><input type="number" min="0" max="200" id="cfg_scoreThreshold" value="'+(cfg.scoreRevealThreshold!=null?cfg.scoreRevealThreshold:10)+'"></label>' +
-        '<label class="field"><span>作品要滿幾人評分才自動公開作者姓名（不用等老師手動開放那份作業；達門檻後預設仍是關閉的，要學生自己勾選「顯示姓名」才會看到）</span><input type="number" min="0" max="200" id="cfg_namesThreshold" value="'+(cfg.namesRevealThreshold!=null?cfg.namesRevealThreshold:15)+'"></label>' +
+        '<label class="field"><span>某份作業要有幾位同學評完，才自動開放「作者姓名」和「分數／雷達圖」（在這之前都先隱藏，避免太早看到互相影響；不用等老師手動開放，達標後預設仍是關閉的，要學生自己勾選才會看到）</span><input type="number" min="0" max="200" id="cfg_revealMinReviewers" value="'+(cfg.revealMinReviewers!=null?cfg.revealMinReviewers:15)+'"></label>' +
+        '<label class="field"><span>每位同學在那份作業要評滿幾件，才算「評完」</span><input type="number" min="1" max="50" id="cfg_revealMinReviews" value="'+(cfg.revealMinReviews!=null?cfg.revealMinReviews:5)+'"></label>' +
         '<p class="hint">密語驗證在伺服器端做，其他同學看不到。之後隨時可以在上面兩個清單「新增一行」作業或題目，不會影響已經收到的作品和分數；但如果去修改文字、刪除或搬動「既有」的那幾行，可能會讓已經收到的分數對不上，這種情況才建議避免在評分開始後做。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
@@ -2172,8 +2198,9 @@ function render(){
 // ---------- 資料載入 ----------
 function loadHome(){
   if(!apiUrl){ homeStats=null; render(); return; }
-  homeStats = null; render();
-  apiGet('home').then(function(json){ homeStats = json; render(); })
+  if(!homeStats) homeStats = swrLoad('home');
+  render();
+  apiGet('home').then(function(json){ homeStats = json; swrSave('home', json); render(); })
     .catch(function(e){ setToast('error','無法連上資料庫：'+e.message); render(); });
 }
 function loadMySubs(){
@@ -2187,8 +2214,14 @@ function loadReviewView(){
   if(!hasIdentity() || !apiUrl || !reviewAssignment) { render(); return; }
   reviewView = null; render();
   apiGet('getNextWork', { reviewerNorm: identityNorm(), assignment: reviewAssignment, extraTarget: getExtraTarget() }).then(function(res){
-    reviewView = res; render();
+    reviewView = res; preloadUpcomingWork(res); render();
   }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
+}
+/** 伺服器順便告訴我們「評完這件之後大概是哪一件」，先把圖載進瀏覽器快取，學生按下送出後下一張就幾乎是秒開。 */
+function preloadUpcomingWork(view){
+  if(!view || !view.upcoming || !view.upcoming.driveLink) return;
+  var embed = toEmbed(view.upcoming.driveLink);
+  if(embed && embed.kind==='image'){ var img = new Image(); img.src = embed.src; }
 }
 /** 選作業畫面／評分中都會用到：每份作業各自評了幾件，用來提示還沒評夠的作業。 */
 function loadMyReviewProgress(){
@@ -2269,8 +2302,12 @@ function setTeacherAutoRefresh(on){
 
 function loadGallery(){
   if(!apiUrl){ galleryData=null; render(); return; }
-  galleryData = null; render();
-  apiGet('gallery').then(function(res){ galleryData = res; render(); })
+  if(!galleryData){
+    var cached = swrLoad('gallery2'); // 2 = 資料格式版本，改版後舊格式的快取不會被拿來顯示
+    if(cached && typeof cached.revealMinReviewers === 'number') galleryData = cached;
+  }
+  render();
+  apiGet('gallery').then(function(res){ galleryData = res; swrSave('gallery2', res); render(); })
     .catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
 }
 
@@ -2312,7 +2349,7 @@ function handleFileChange(input){
   }
   resizeImageFile(file).then(function(dataUrl){
     var base64 = dataUrl.split(',')[1];
-    pendingImage = { dataUrl: dataUrl, base64: base64, mime: 'image/jpeg', name: file.name };
+    pendingImage = { dataUrl: dataUrl, base64: base64, mime: 'image/jpeg', name: file.name, hash: hashString(base64) };
     render();
   }).catch(function(e){
     alert('圖片處理失敗：'+e.message);
@@ -2339,7 +2376,14 @@ function handleSubmitWork(form){
   if(!assignment){ alert('請選擇這是哪一份作業'); return; }
   if(!pendingImage && !link){ alert('請上傳一張圖片，或貼上圖片網址。'); return; }
   if(link && !safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
-  var payload = { id: uid('s_'), studentName:getMyName(), studentSeat:getMySeat(), studentNorm:identityNorm(), title:title, assignment:assignment, createdAt:Date.now(), deviceId:getDeviceId() };
+  var imageHash = pendingImage ? pendingImage.hash : 'u:'+hashString(link);
+  var sameAssignmentSubs = (mySubs||[]).filter(function(s){ return normAssignment(s.assignment)===normAssignment(assignment); });
+  if(sameAssignmentSubs.some(function(s){ return s.imageHash && s.imageHash===imageHash; })){
+    alert('這件作品你已經在這份作業交過了（內容一模一樣），不用重複交。如果想換一張，請先刪掉舊的那件。');
+    return;
+  }
+  if(sameAssignmentSubs.length && !confirm('你在這份作業已經交過作品了。再交一件的話，同學評分時每個人只會評到你這份作業的其中一件，確定還要再交嗎？')) return;
+  var payload = { id: uid('s_'), studentName:getMyName(), studentSeat:getMySeat(), studentNorm:identityNorm(), title:title, assignment:assignment, createdAt:Date.now(), deviceId:getDeviceId(), imageHash:imageHash };
   loading = true; submittingWork = true; submitCancelled = false; render();
   if(pendingImage){
     // 圖片資料塞不進網址，用隱藏表單送出、讀不到回應，
@@ -2354,10 +2398,15 @@ function handleSubmitWork(form){
       submitTargetAssignment = null;
       if(sub){
         setToast('success', '已送出！同學評分時不會看到你的名字。');
-      } else {
-        setToast('success', '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到。');
+        loadMySubs();
+        return;
       }
-      loadMySubs();
+      // 沒等到這一件：可能是還在處理，也可能是伺服器判斷「內容一模一樣、已經交過了」而沒有新增，查一下才不會講錯。
+      return apiGet('getMySubmissions', { studentNorm: identityNorm() }).then(function(res){
+        var dup = (res.submissions||[]).some(function(s){ return s.imageHash===payload.imageHash && normAssignment(s.assignment)===normAssignment(assignment); });
+        setToast(dup ? 'info' : 'success', dup ? '這件作品你之前已經交過了（內容一模一樣），沒有重複新增。' : '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到。');
+        loadMySubs();
+      });
     }).catch(function(e){
       loading = false; submittingWork = false;
       if(submitCancelled) return;
@@ -2370,7 +2419,8 @@ function handleSubmitWork(form){
       loading = false; submittingWork = false;
       if(submitCancelled) return;
       submitTargetAssignment = null;
-      setToast('success', '已送出！同學評分時不會看到你的名字。');
+      if(res && res.duplicate) setToast('info', '這件作品你之前已經交過了（內容一模一樣），沒有重複新增。');
+      else setToast('success', '已送出！同學評分時不會看到你的名字。');
       loadMySubs();
     }).catch(function(e){
       loading = false; submittingWork = false;
@@ -2391,14 +2441,22 @@ function handleSubmitScore(form){
     workId: workId,
     reviewerNorm: norm,
     scores: JSON.parse(JSON.stringify(currentScores)),
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    assignment: reviewAssignment,
+    extraTarget: getExtraTarget()
   };
   currentScores = {};
   loading = true; render();
-  apiGet('addReview', payload).then(function(){
+  apiGet('addReview', payload).then(function(res){
     loading = false;
     setToast('success', '評分已送出，謝謝！');
-    loadReviewView();
+    // 伺服器在回應裡直接附上下一件要評的作品，不用再多打一次 getNextWork；
+    // 沒附（例如舊版後端）才退回原本的做法。
+    if(res && res.next && res.next.criteria){
+      reviewView = res.next; preloadUpcomingWork(res.next); render();
+    } else {
+      loadReviewView();
+    }
     loadMyReviewProgress();
   }).catch(function(e){
     loading = false;
@@ -2424,8 +2482,8 @@ function handleSaveConfig(form){
   form.querySelectorAll('.cfg-desc-textarea').forEach(function(ta){
     assignmentDescriptions[ta.getAttribute('data-assignment')] = ta.value;
   });
-  var scoreThreshold = Math.max(0, parseInt(form.querySelector('#cfg_scoreThreshold').value,10) || 0);
-  var namesThreshold = Math.max(0, parseInt(form.querySelector('#cfg_namesThreshold').value,10) || 0);
+  var revealMinReviewers = Math.max(0, parseInt(form.querySelector('#cfg_revealMinReviewers').value,10) || 0);
+  var revealMinReviews = Math.max(1, parseInt(form.querySelector('#cfg_revealMinReviews').value,10) || 1);
   var newAssignments = form.querySelector('#cfg_assignments').value.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
   var authPass = teacherAuthPasscode();
   // 注意：這裡故意不呼叫 render()，因為教師畫面的表單會照「目前存的設定」重畫，
@@ -2433,7 +2491,7 @@ function handleSaveConfig(form){
   // 改成直接操作按鈕本身當作提示，等真的存好了再讓 loadTeacherView() 正常重畫。
   var btn = form.querySelector('button[type="submit"]');
   if(btn){ btn.disabled = true; btn.textContent = '儲存中...'; }
-  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, scoreRevealThreshold:scoreThreshold, namesRevealThreshold:namesThreshold, assignmentDescriptions:assignmentDescriptions, assignments:newAssignments }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, revealMinReviewers:revealMinReviewers, revealMinReviews:revealMinReviews, assignmentDescriptions:assignmentDescriptions, assignments:newAssignments }).then(function(res){
     if(!res.ok){
       alert('儲存失敗：密語不對或權限有問題，請重新登入教師專區再試一次。');
       clearTeacherAuth();
