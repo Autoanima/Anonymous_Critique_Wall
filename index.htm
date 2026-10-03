@@ -64,6 +64,13 @@ button,input,textarea{font-family:inherit;}
 .tabs-scroll{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
 .tabs-scroll::-webkit-scrollbar{display:none;}
 .tabs-scroll .navbtn{flex:none;white-space:nowrap;padding:10px 16px;}
+/* 教師模式的頂端列要盡量矮（手機上它是 sticky，佔掉的高度會一直蓋住內容）：第一排一行放完、按鈕縮小 */
+.topbar-teacher{gap:6px;padding-block:8px 6px;}
+.teacher-bar{flex-wrap:nowrap;gap:8px;white-space:nowrap;}
+.teacher-bar-left{display:flex;align-items:center;gap:8px;min-width:0;font-size:0.8rem;}
+.teacher-bar-left .brand-mark{font-size:1.1rem;}
+.topbar-teacher .tabs-scroll .navbtn{padding:6px 14px;font-size:0.82rem;}
+.topbar-teacher .tabs .navbtn{padding:6px 8px;font-size:0.82rem;}
 .settings-fold{margin-top:10px;}
 .settings-fold>summary{cursor:pointer;font-weight:700;padding:4px 0;}
 .navbtn-select{-webkit-appearance:none;appearance:none;text-align:center;text-align-last:center;padding-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -1929,13 +1936,14 @@ function equipDurationQuickHtml(eq){
   var lo = (eq && eq.durationMin!=null) ? eq.durationMin : 1;
   var hi = (eq && eq.durationMax!=null) ? eq.durationMax : 15;
   var unlocked = equipDurationUnlocked;
-  return '<span class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:6px;margin-left:8px">' +
+  // 鎖頭只留圖示（文字會害這一排換行、變很高），滑過去／長按才看得到說明
+  return '<span class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:5px;white-space:nowrap">' +
     '每人' +
-    '<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;user-select:none">' +
-      '<input type="checkbox" id="equipDurationUnlock" '+(unlocked?'checked':'')+' style="cursor:pointer">' +
-      '<span>'+(unlocked?'🔓可調':'🔒鎖定')+'</span>' +
+    '<label title="'+(unlocked?'目前可調整，點一下鎖定':'目前鎖定，點一下才能調整')+'" style="display:inline-flex;align-items:center;gap:2px;cursor:pointer;user-select:none">' +
+      '<input type="checkbox" id="equipDurationUnlock" '+(unlocked?'checked':'')+' style="cursor:pointer;margin:0">' +
+      '<span>'+(unlocked?'🔓':'🔒')+'</span>' +
     '</label>' +
-    '<input type="range" id="equipDurationSlider" min="'+lo+'" max="'+hi+'" step="1" value="'+minutes+'" '+(unlocked?'':'disabled')+' style="width:72px;vertical-align:middle;cursor:'+(unlocked?'pointer':'not-allowed')+'">' +
+    '<input type="range" id="equipDurationSlider" min="'+lo+'" max="'+hi+'" step="1" value="'+minutes+'" '+(unlocked?'':'disabled')+' style="width:64px;vertical-align:middle;cursor:'+(unlocked?'pointer':'not-allowed')+'">' +
     '<span id="equipDurationValue" style="min-width:1.6em;text-align:center;display:inline-block;font-family:\'JetBrains Mono\',monospace">'+minutes+'</span>' +
     '分' +
   '</span>';
@@ -2458,12 +2466,12 @@ function navHtml(role){
   if(role==='teacher'){
     // 這排跳轉連結放在 <header> 裡面、跟品牌列一起，是為了讓它跟頂端列一樣
     // 是 sticky 的——往下滑頁面時會一直貼在最上面，不用滑回頂端才能點。
-    return '<header class="topbar">' +
-      '<div class="topbar-top">' +
-        '<div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'　<span class="hint" style="font-size:0.7rem">教師模式</span>' +
+    return '<header class="topbar topbar-teacher">' +
+      '<div class="topbar-top teacher-bar">' +
+        '<div class="teacher-bar-left"><span class="brand-mark">&#9686;</span><strong>教師模式</strong>' +
           '<span id="equipDurationQuickSlot">' + equipDurationQuickHtml(equipmentData) + '</span>' +
         '</div>' +
-        '<div id="teacherEquipMiniSlot">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
+        '<div id="teacherEquipMiniSlot" style="flex:none">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
       '</div>' +
       '<nav class="tabs tabs-scroll">' +
         TEACHER_TABS.map(function(t){
