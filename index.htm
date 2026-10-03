@@ -71,6 +71,9 @@ button,input,textarea{font-family:inherit;}
 .teacher-bar-left .brand-mark{font-size:1.1rem;}
 .topbar-teacher .tabs-scroll .navbtn{padding:6px 14px;font-size:0.82rem;}
 .topbar-teacher .tabs .navbtn{padding:6px 8px;font-size:0.82rem;}
+.teacher-tabs-row{display:flex;align-items:center;gap:8px;}
+.teacher-tabs-row .tabs-scroll{flex:1;min-width:0;}
+.teacher-tabs-row #equipStartPauseToggle{flex:none;padding:6px 14px;font-size:0.82rem;background:var(--accent-soft);color:var(--accent-strong);border-color:var(--accent);font-weight:700;white-space:nowrap;}
 .settings-fold{margin-top:10px;}
 .settings-fold>summary{cursor:pointer;font-weight:700;padding:4px 0;}
 .navbtn-select{-webkit-appearance:none;appearance:none;text-align:center;text-align-last:center;padding-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -2473,15 +2476,19 @@ function navHtml(role){
         '</div>' +
         '<div id="teacherEquipMiniSlot" style="flex:none">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
       '</div>' +
-      '<nav class="tabs tabs-scroll">' +
-        TEACHER_TABS.map(function(t){
-          return '<button type="button" class="navbtn'+(teacherTab===t.id?' active':'')+'" data-teacher-tab="'+t.id+'">'+t.label+'</button>';
-        }).join('') +
-      '</nav>' +
-      '<nav class="tabs" style="flex-wrap:wrap">' +
-        '<span id="teacherHeaderAssignmentSlot" style="display:contents">' + teacherHeaderAssignmentSwitcherHtml() + '</span>' +
+      // 分頁選單 + 最右邊固定的「開始／暫停」（常用，不跟著選單捲走）
+      '<div class="teacher-tabs-row">' +
+        '<nav class="tabs tabs-scroll">' +
+          TEACHER_TABS.map(function(t){
+            return '<button type="button" class="navbtn'+(teacherTab===t.id?' active':'')+'" data-teacher-tab="'+t.id+'">'+t.label+'</button>';
+          }).join('') +
+        '</nav>' +
         '<span id="teacherEquipControlsSlot" style="display:contents">' + equipStartPauseButtonsHtml(equipmentData) + '</span>' +
-      '</nav>' +
+      '</div>' +
+      // 作業下拉選單只有「評分總表」「評分進度」用得到，其他分頁不顯示，少一排
+      ((teacherTab==='grades' || teacherTab==='progress')
+        ? '<nav class="tabs"><span id="teacherHeaderAssignmentSlot" style="display:contents">' + teacherHeaderAssignmentSwitcherHtml() + '</span></nav>'
+        : '') +
     '</header>';
   }
   return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材借用')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
