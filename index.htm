@@ -199,6 +199,23 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 @media (orientation:landscape) and (min-width:1001px){
   .grade-table th.crit-th{white-space:normal;overflow:visible;text-overflow:clip;max-width:160px;line-height:1.3;}
 }
+/* 手機直拿：表格不要再硬撐 620px 寬、害人要一直往右拉才看得到資料——字級和留白縮小，
+   作業名稱用簡短標示，次要的「裝置代碼」欄在窄螢幕先藏起來（橫放或電腦上還是看得到）。 */
+@media (max-width:600px){
+  .grade-table{min-width:0;font-size:0.74rem;}
+  .grade-table th,.grade-table td{padding:6px 4px;}
+  .grade-table thead th{font-size:0.64rem;letter-spacing:0;}
+  .grade-table .mine-thumb{width:28px;height:28px;border-radius:6px;}
+  .grade-table th.crit-th,.grade-table td.title-cell{max-width:52px;}
+  .grade-table .col-device{display:none;}
+}
+@media (max-width:380px){
+  .grade-table{font-size:0.7rem;}
+  .grade-table th,.grade-table td{padding:6px 3px;}
+  .grade-table thead th{font-size:0.6rem;}
+  .grade-table th.crit-th,.grade-table td.title-cell{max-width:46px;}
+}
+.progress-table td small{font-size:0.62rem;font-weight:500;color:var(--ink-soft);margin-left:2px;}
 
 .config-card summary{cursor:pointer;font-weight:700;padding:2px 0;}
 .config-card .form{margin-top:12px;}
@@ -410,7 +427,6 @@ function leaveTeacherGalleryMode(){
 }
 // 點名名單的排序方式：'seat'=依座號（預設），'order'=依這組的轉圈順序；
 // 存點名結果之後自動切成 'order'，方便直接對照剛排好的輪值順序，但隨時可以切回座號排序。
-var attendanceSortMode = 'seat';
 // 兩張表各自獨立的排序狀態：null 代表還沒點過任何欄位標題，用預設的座號排序。
 var teacherSortKey = null, teacherSortDir = 1;
 var reviewerSortKey = null, reviewerSortDir = 1;
@@ -461,6 +477,12 @@ function normSeat(s){ var t = toHalfWidth(s).replace(/\s+/g,'').toLowerCase(); r
 // 作業名稱要正規化過再比較，理由跟後端 Code.gs 裡的 normAssignment 一樣：
 // Google 試算表會把 "01" 這種看起來像數字的文字自動存成數字 1，兩邊格式對不起來
 // 的話，作業繳交狀況、作品牆篩選、教師總表篩選全部都會找不到對應的資料。
+/** 表格欄位放不下完整作業名稱（例如「01高速快門」）時的簡短標示：開頭的編號，沒有編號就取前 3 個字。完整名稱放在 title 裡。 */
+function shortAssignment(a){
+  var s = String(a==null?'':a).trim();
+  var m = /^\d+/.exec(s);
+  return m ? m[0] : s.slice(0, 3);
+}
 function normAssignment(a){ var s = String(a==null?'':a).trim(); if(s!=='' && !isNaN(Number(s))) return String(Number(s)); return s; }
 /** 判斷某份作業目前有沒有開放姓名，邏輯跟後端 Code.gs 的 isNamesRevealedFor 一致（含舊版設定相容）。 */
 /** 依 normAssignment 比對從 { 作業名稱: 文字 } 這種對照表裡找值，跟 isNamesRevealedFor 用同一套比對邏輯。 */
@@ -2007,21 +2029,9 @@ function parseGroupsText(text){
  * 遲到的人只要回來這裡重新勾選「有來」再存一次，就會馬上排回輪值順序，
  * 不需要重新排定順序或做任何其他操作。
  */
-/** 依目前的排序模式，把一組的成員排出顯示順序：'order' 時照轉圈順序（不在順序裡的人排最後）。 */
-function sortedAttendanceMembers(g, mode){
-  var members = g.members.slice();
-  if(mode==='order'){
-    var idxBySeat = {};
-    (g.order||[]).forEach(function(p,i){ idxBySeat[normSeat(p.seat)] = i; });
-    members.sort(function(a,b){
-      var ai = idxBySeat.hasOwnProperty(normSeat(a.seat)) ? idxBySeat[normSeat(a.seat)] : Infinity;
-      var bi = idxBySeat.hasOwnProperty(normSeat(b.seat)) ? idxBySeat[normSeat(b.seat)] : Infinity;
-      return ai!==bi ? ai-bi : seatNumFor(a.seat)-seatNumFor(b.seat);
-    });
-  } else {
-    members.sort(function(a,b){ return seatNumFor(a.seat)-seatNumFor(b.seat); });
-  }
-  return members;
+/** 點名名單一律依座號排。 */
+function sortedAttendanceMembers(g){
+  return g.members.slice().sort(function(a,b){ return seatNumFor(a.seat)-seatNumFor(b.seat); });
 }
 function equipAttendanceHtml(eq){
   if(!eq){
@@ -2030,9 +2040,8 @@ function equipAttendanceHtml(eq){
   if(!eq.groups || !eq.groups.length){
     return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材借用管理」新增分組名單。</p></div>';
   }
-  var mode = attendanceSortMode;
   var groupsHtml = eq.groups.map(function(g){
-    var members = sortedAttendanceMembers(g, mode);
+    var members = sortedAttendanceMembers(g);
     var attRows = members.map(function(m){
       return '<label class="toggle-row"><input type="checkbox" class="equip-att" data-group="'+escapeAttr(g.name)+'" data-seat="'+escapeAttr(m.seat)+'" '+(m.present?'checked':'')+'> '+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+'</label>';
     }).join('');
@@ -2046,10 +2055,6 @@ function equipAttendanceHtml(eq){
   return (
     '<div class="card">' +
       '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材借用的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。開始／暫停計時的按鈕放在最上面，隨時都點得到。</p>' +
-      '<div class="cta-row">' +
-        '<button type="button" class="btn '+(mode==='seat'?'btn-primary':'btn-accent')+'" data-attendance-sort="seat">依座號排序</button>' +
-        '<button type="button" class="btn '+(mode==='order'?'btn-primary':'btn-accent')+'" data-attendance-sort="order">依分組順序排序</button>' +
-      '</div>' +
       groupsHtml +
       '<button type="button" class="btn btn-primary" id="equipSaveAttendance" style="margin-top:10px;width:100%">儲存點名結果</button>' +
     '</div>'
@@ -2221,9 +2226,6 @@ function handleEquipSaveAttendance(){
     att[g] = att[g] || {};
     att[g][seat] = cb.checked;
   });
-  // 存完點名後直接切成「依分組順序排序」，方便老師馬上對照剛排好的輪值順序；
-  // 隨時都可以再按上面的按鈕切回座號排序。
-  attendanceSortMode = 'order';
   handleEquipAction('equipmentSetAttendance', { attendance: att });
 }
 function handleEquipQuickDuration(delta){
@@ -2402,12 +2404,12 @@ function screenTeacher(){
       '<td class="num">'+(namesHidden ? '●' : escapeHtml(r.studentSeat))+'</td>' +
       '<td>'+(namesHidden ? '●●●' : escapeHtml(r.studentName))+'</td>' +
       '<td>'+thumb+'</td>' +
-      '<td>'+escapeHtml(r.assignment||'—')+'</td>' +
+      '<td title="'+escapeAttr(r.assignment||'')+'">'+escapeHtml(r.assignment ? shortAssignment(r.assignment) : '—')+'</td>' +
       '<td class="title-cell">'+escapeHtml(r.title||'—')+'</td>' +
       cells +
       '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+'</td>' +
       '<td class="num"'+(underReviewed?' style="color:var(--warn);font-weight:700"':'')+' title="'+(underReviewed?'還差 '+(required-r.count)+' 份評分才滿老師設定的 '+required+' 份':'已收滿老師設定的 '+required+' 份評分')+'">'+r.count+(underReviewed?' ⚠':'')+'</td>' +
-      '<td class="mono" style="font-size:0.7rem;color:var(--ink-soft)">'+escapeHtml(r.deviceId||'—')+'</td>' +
+      '<td class="mono col-device" style="font-size:0.7rem;color:var(--ink-soft)">'+escapeHtml(r.deviceId||'—')+'</td>' +
     '</tr>';
   }).join('');
   var reviewerSection;
@@ -2456,15 +2458,15 @@ function screenTeacher(){
     });
     var studentList = Object.keys(students).map(function(k){ return students[k]; });
     studentList.sort(function(a,b){ return seatNumFor(a.seat) - seatNumFor(b.seat); });
-    var progressHead = progressAssignments.map(function(a){ return '<th>'+escapeHtml(a)+'</th>'; }).join('');
+    var progressHead = progressAssignments.map(function(a){ return '<th title="'+escapeAttr(a)+'">'+escapeHtml(shortAssignment(a))+'</th>'; }).join('');
     var progressRows = studentList.map(function(st){
       var metCount = 0;
       var cells = progressAssignments.map(function(a){
         var rv = st.cells[a];
         if(!rv) return '<td class="hint">—</td>';
         if(rv.met) metCount++;
-        var text = rv.reviewCount+'/'+required+(rv.met?' ✓':'')+(rv.submitted?'':'（未交）');
-        return '<td style="'+(rv.met?'color:var(--good);font-weight:700':'color:var(--warn);font-weight:700')+'">'+text+'</td>';
+        var text = rv.reviewCount+'/'+required+(rv.met?'✓':'');
+        return '<td style="'+(rv.met?'color:var(--good);font-weight:700':'color:var(--warn);font-weight:700')+'">'+text+(rv.submitted?'':'<small>未交</small>')+'</td>';
       }).join('');
       return '<tr>' +
         '<td class="num">'+(namesHidden ? '●' : escapeHtml(st.seat))+'</td>' +
@@ -2475,8 +2477,8 @@ function screenTeacher(){
     }).join('');
     reviewerSection =
       '<p class="hint">每格是「已評件數／需要件數」，✓ 代表這份作業已達標，橘色是還沒評完。點上面的作業名稱可以只看單一作業的詳細進度。</p>' +
-      '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-        '<th>座號</th><th>姓名</th>' + progressHead + '<th>達標作業</th>' +
+      '<div class="table-wrap card"><table class="grade-table progress-table"><thead><tr>' +
+        '<th>座號</th><th>姓名</th>' + progressHead + '<th>達標</th>' +
       '</tr></thead><tbody>' + (progressRows || '<tr><td colspan="99" class="hint">目前還沒有人交作品或評分。</td></tr>') + '</tbody></table></div>';
   }
 
@@ -2491,7 +2493,7 @@ function screenTeacher(){
     '<div class="card" style="padding:10px 0">' +
       '<div class="assignment-chip-scroll">'+assignmentChipsHtml+'</div>' +
     '</div>' +
-    '<p class="hint" style="text-align:center;margin-top:-6px">左右滑動切換，或直接點作業名稱</p>';
+    '<p class="hint" style="text-align:center;margin-top:8px">左右滑動切換，或直接點作業名稱</p>';
 
   var configHtml =
     '<div class="card config-card">' +
@@ -2577,7 +2579,7 @@ function screenTeacher(){
           head +
           sortTh('總平均','grade','overall',teacherSortKey,teacherSortDir) +
           sortTh('份數','grade','count',teacherSortKey,teacherSortDir) +
-          sortTh('裝置代碼','grade','device',teacherSortKey,teacherSortDir) +
+          sortTh('裝置代碼','grade','device',teacherSortKey,teacherSortDir,'col-device') +
         '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>'
       );
     },
@@ -3389,8 +3391,6 @@ function attachHandlers(){
     }
     if(e.target.closest('#equipSaveGroups')){ handleEquipSaveGroups(); return; }
     if(e.target.closest('#equipSaveAttendance')){ handleEquipSaveAttendance(); return; }
-    var attSortBtn = e.target.closest('[data-attendance-sort]');
-    if(attSortBtn){ attendanceSortMode = attSortBtn.getAttribute('data-attendance-sort'); render(); return; }
     if(e.target.closest('#equipBuildOrder')){ handleEquipBuildOrder(); return; }
     if(e.target.closest('#equipSaveDurationRange')){ handleEquipSetDurationRange(document.getElementById('app')); return; }
     if(e.target.closest('#equipSaveItemTypes')){ handleEquipSaveItemTypes(document.getElementById('app')); return; }
