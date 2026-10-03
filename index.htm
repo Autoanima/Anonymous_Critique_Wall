@@ -370,7 +370,15 @@ function escapeAttr(s){ return escapeHtml(s); }
  * 因為等寬字體的「0」在小色塊裡縮小後很容易看成「8」。 */
 function stripLeadingZero(seat){ return String(seat==null?'':seat).replace(/^0+(?=\d)/, ''); }
 function normName(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
-function normSeat(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,''); }
+// 座號可能被輸入成「 1 」「01」「１」（全形），這幾個都是同一個人：
+// cleanSeat 給「顯示／儲存」用（半形、去空白、純數字不足兩位補 0，例如 1 → 01）；
+// normSeat 給「比對」用（再把純數字的前導零去掉，所以 01 跟 1 比對起來是同一個）。
+// 後端 Code.gs 有同一套規則（canonSeatServer／padSeat），舊資料不用改也能對得上。
+function toHalfWidth(s){
+  return String(s==null?'':s).replace(/[！-～]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xfee0); }).replace(/　/g,' ');
+}
+function cleanSeat(s){ var t = toHalfWidth(s).replace(/\s+/g,''); return (/^\d+$/.test(t) && t.length<2) ? '0'+t : t; }
+function normSeat(s){ var t = toHalfWidth(s).replace(/\s+/g,'').toLowerCase(); return /^\d+$/.test(t) ? t.replace(/^0+(?=\d)/,'') : t; }
 // 作業名稱要正規化過再比較，理由跟後端 Code.gs 裡的 normAssignment 一樣：
 // Google 試算表會把 "01" 這種看起來像數字的文字自動存成數字 1，兩邊格式對不起來
 // 的話，作業繳交狀況、作品牆篩選、教師總表篩選全部都會找不到對應的資料。
@@ -422,8 +430,8 @@ function getRole(){ return localStorage.getItem('crit.role') || 'home'; }
 function setRole(r){ localStorage.setItem('crit.role', r); }
 function getMyName(){ return localStorage.getItem('crit.myName') || ''; }
 function setMyName(n){ localStorage.setItem('crit.myName', n); }
-function getMySeat(){ return localStorage.getItem('crit.mySeat') || ''; }
-function setMySeat(s){ localStorage.setItem('crit.mySeat', s); }
+function getMySeat(){ return cleanSeat(localStorage.getItem('crit.mySeat') || ''); }
+function setMySeat(s){ localStorage.setItem('crit.mySeat', cleanSeat(s)); }
 function hasIdentity(){ return !!(getMySeat() && getMyName()); }
 function identityNorm(){ return normSeat(getMySeat()) + '::' + normName(getMyName()); }
 /**
@@ -1449,11 +1457,11 @@ function screenEquipment(){
  * buildEquipSegments 的說明；這裡故意不檢查教師密語，是本人對自己的權利做決定。
  */
 function equipWaiveButtonHtml(group, state){
-  var mySeat = String(getMySeat()||'').trim();
-  if(!mySeat || !state.segments) return '';
+  if(!getMySeat() || !state.segments) return '';
   var order = state.order;
   var myIndex = -1;
-  order.forEach(function(p,i){ if(String(p.seat).trim()===mySeat) myIndex = i; });
+  var mySeat = ''; // 名單裡「我」那一筆的座號原文（老師輸入的寫法），放棄名單裡存的是這個寫法
+  order.forEach(function(p,i){ if(normSeat(p.seat)===normSeat(getMySeat())){ myIndex = i; mySeat = String(p.seat).trim(); } });
   if(myIndex < 0) return '';
   var waivedSeats = group.waivedSeats || [];
   if(waivedSeats.indexOf(mySeat) >= 0){
@@ -2794,7 +2802,9 @@ function attachHandlers(){
       if(!confirm('確定要放棄這次使用機會嗎？你剩下的時間會平分給還沒輪到的組員，這個動作沒辦法收回。')) return;
       var waiveGroup = findMyGroup(equipmentData);
       if(waiveGroup){
-        apiGet('equipmentWaive', { groupName: waiveGroup.name, seat: getMySeat(), name: getMyName() }).then(function(res){
+        var rosterSeat = getMySeat();
+        (waiveGroup.order||[]).forEach(function(p){ if(normSeat(p.seat)===normSeat(getMySeat())) rosterSeat = String(p.seat).trim(); });
+        apiGet('equipmentWaive', { groupName: waiveGroup.name, seat: rosterSeat, name: getMyName() }).then(function(res){
           if(res.ok) equipmentData = res.equipment;
           render();
         }).catch(function(err){ setToast('error','操作失敗：'+err.message); render(); });
