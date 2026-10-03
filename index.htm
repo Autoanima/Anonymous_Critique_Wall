@@ -1723,7 +1723,31 @@ function equipMiniBarHtml(){
     '</div>'
   );
 }
+// ---------- 99 號教師測試帳號的「模擬分組」----------
+// 老師用 99 號測試時，借器材頁要跟學生看到的一樣完整可用，所以把老師當成「自己一個人一組」：
+// 時間軸跟全班共用同一條（老師在教師模式按開始／暫停，這一組也跟著跑），但勾選歸還、放棄使用這些動作
+// 只存在這支裝置（localStorage），完全不會送到伺服器，也不會出現在真正各組的資料裡。
+var SIM_GROUP_NAME = '模擬組（只有你）';
+function getSimEquip(){
+  try{ return JSON.parse(localStorage.getItem('crit.simEquip') || 'null') || {}; }catch(e){ return {}; }
+}
+function saveSimEquip(s){ try{ localStorage.setItem('crit.simEquip', JSON.stringify(s)); }catch(e){} }
+function blankEquipStatus(){ return { reported:false, reportedBySeat:'', reportedByName:'', reportedAt:null, confirmed:false }; }
+function simGroupFor(eq){
+  var sim = getSimEquip();
+  var n = (eq && eq.itemTypes ? eq.itemTypes.length : 0);
+  var statuses = [];
+  for(var i=0;i<n;i++) statuses.push((sim.statuses||[])[i] || blankEquipStatus());
+  return {
+    name: SIM_GROUP_NAME, sim: true,
+    members: [ { seat:TEST_SEAT, name:TEST_NAME, present:true } ],
+    order: [ { seat:TEST_SEAT, name:TEST_NAME } ],
+    leader: TEST_SEAT, equipmentStatus: statuses,
+    waivedSeats: sim.waivedSeats || [], waiverLog: sim.waiverLog || []
+  };
+}
 function findMyGroup(eq){
+  if(isTestSeat(getMySeat())) return simGroupFor(eq);
   var mySeatNorm = normSeat(getMySeat());
   if(!mySeatNorm) return null;
   for(var i=0;i<(eq.groups||[]).length;i++){
@@ -1740,9 +1764,6 @@ function screenEquipment(){
   }
   if(!hasIdentity()){
     return '<h1 class="screen-title">借器材</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，系統才能找到你的分組。</p>';
-  }
-  if(isTestSeat(getMySeat())){
-    return '<h1 class="screen-title">借器材</h1><div class="card"><p class="hint">你現在是 99 號教師測試帳號，不屬於任何分組，也不會借還器材。要看各組的借還狀況請回教師專區。</p></div>';
   }
   var eq = equipmentData;
   var group = findMyGroup(eq);
@@ -1783,7 +1804,20 @@ function screenEquipment(){
     '<p class="hint">'+escapeHtml(group.name)+'　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'（尚未排定順序）')+'</p>' +
     '<p class="hint">組長要負責確認本組器材是否已經正確的歸還，並且在底下打勾歸還的物件之後送出勾選。</p>' +
     timelineSection +
-    equipmentReturnChecklistHtml(eq, group)
+    equipmentReturnChecklistHtml(eq, group) +
+    (group.sim ? simControlsHtml() : '')
+  );
+}
+/** 只有 99 號教師測試帳號看得到：模擬分組沒有真的老師在另一頭按「確認」，所以給兩顆測試用的按鈕。 */
+function simControlsHtml(){
+  return (
+    '<div class="card" style="margin-top:10px">' +
+      '<p class="hint">【測試帳號專用，學生看不到】這是模擬的一個人一組：計時跟全班同步，勾選與放棄都只存在這支裝置，不會送到伺服器。</p>' +
+      '<div class="cta-row">' +
+        '<button type="button" class="btn btn-accent" id="simConfirmAll">模擬老師按確認收到</button>' +
+        '<button type="button" class="btn btn-accent" id="simReset">重設模擬</button>' +
+      '</div>' +
+    '</div>'
   );
 }
 /**
@@ -2219,6 +2253,22 @@ function handleEquipReportReturned(group){
     var st = (group.equipmentStatus||[])[i] || {};
     return equipCheckboxDraft.hasOwnProperty(key) ? equipCheckboxDraft[key] : !!st.reported;
   });
+  if(group.sim){
+    // 99 號測試帳號的模擬分組：只更新這支裝置上的模擬狀態，不送伺服器
+    var simState = getSimEquip();
+    var current = simGroupFor(equipmentData).equipmentStatus;
+    simState.statuses = items.map(function(_, i){
+      var st = current[i];
+      if(statuses[i] === !!st.reported) return st;
+      if(!statuses[i]) return blankEquipStatus();
+      return { reported:true, reportedBySeat:getMySeat(), reportedByName:getMyName(), reportedAt:Date.now(), confirmed:false };
+    });
+    saveSimEquip(simState);
+    items.forEach(function(_, i){ delete equipCheckboxDraft[group.name+'::'+i]; });
+    setToast('success','已送出，等老師確認收到就完成囉。（模擬）');
+    render();
+    return;
+  }
   apiGet('equipmentReportReturned', { groupName: group.name, statuses: statuses, reporterSeat: getMySeat(), reporterName: getMyName() }).then(function(res){
     if(res.ok){
       equipmentData = res.equipment;
@@ -3336,9 +3386,35 @@ function attachHandlers(){
       if(myGroup) handleEquipReportReturned(myGroup);
       return;
     }
+    if(e.target.closest('#simConfirmAll')){
+      var simC = getSimEquip();
+      simC.statuses = simGroupFor(equipmentData).equipmentStatus.map(function(st){
+        if(st.reported) st.confirmed = true;
+        return st;
+      });
+      saveSimEquip(simC);
+      setToast('success','（模擬）老師已確認收到已回報的器材。');
+      render();
+      return;
+    }
+    if(e.target.closest('#simReset')){
+      try{ localStorage.removeItem('crit.simEquip'); }catch(err){}
+      Object.keys(equipCheckboxDraft).forEach(function(k){ if(k.indexOf(SIM_GROUP_NAME+'::')===0) delete equipCheckboxDraft[k]; });
+      setToast('info','已重設模擬。');
+      render();
+      return;
+    }
     if(e.target.closest('#equipWaiveBtn')){
       if(!confirm('確定要放棄這次使用機會嗎？你剩下的時間會平分給還沒輪到的組員，這個動作沒辦法收回。')) return;
       var waiveGroup = findMyGroup(equipmentData);
+      if(waiveGroup && waiveGroup.sim){
+        var simWaive = getSimEquip();
+        simWaive.waivedSeats = [TEST_SEAT];
+        simWaive.waiverLog = [ { seat:TEST_SEAT, name:TEST_NAME, at:Date.now() } ];
+        saveSimEquip(simWaive);
+        render();
+        return;
+      }
       if(waiveGroup){
         var rosterSeat = getMySeat();
         (waiveGroup.order||[]).forEach(function(p){ if(normSeat(p.seat)===normSeat(getMySeat())) rosterSeat = String(p.seat).trim(); });
