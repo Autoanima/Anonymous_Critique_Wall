@@ -76,6 +76,8 @@ button,input,textarea{font-family:inherit;}
 .teacher-bar{flex-wrap:nowrap;gap:8px;white-space:nowrap;}
 .teacher-bar-left{display:flex;align-items:center;gap:8px;min-width:0;font-size:0.8rem;}
 .teacher-bar-left .brand-mark{font-size:1.1rem;}
+.teacher-mode-btn{background:none;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:0.8rem;font-weight:700;color:var(--ink);cursor:pointer;white-space:nowrap;}
+.teacher-mode-btn:active{background:var(--accent-soft);}
 .topbar-teacher .tabs-scroll .navbtn{padding:6px 14px;font-size:0.82rem;}
 .topbar-teacher .tabs .navbtn{padding:6px 8px;font-size:0.82rem;}
 .teacher-tabs-row{display:flex;align-items:center;gap:8px;}
@@ -2507,7 +2509,7 @@ function navHtml(role){
     // 是 sticky 的——往下滑頁面時會一直貼在最上面，不用滑回頂端才能點。
     return '<header class="topbar topbar-teacher">' +
       '<div class="topbar-top teacher-bar">' +
-        '<div class="teacher-bar-left"><span class="brand-mark">&#9686;</span><strong>教師模式</strong>' +
+        '<div class="teacher-bar-left"><span class="brand-mark">&#9686;</span><button type="button" class="teacher-mode-btn" data-nav="home" title="點一下回到學生模式">教師模式</button>' +
           '<span id="equipDurationQuickSlot">' + equipDurationQuickHtml(equipmentData) + '</span>' +
         '</div>' +
         '<div id="teacherEquipMiniSlot" style="flex:none">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
