@@ -1727,22 +1727,36 @@ function equipMiniBarHtml(){
 // 老師用 99 號測試時，借器材頁要跟學生看到的一樣完整可用，所以把老師當成「自己一個人一組」：
 // 時間軸跟全班共用同一條（老師在教師模式按開始／暫停，這一組也跟著跑），但勾選歸還、放棄使用這些動作
 // 只存在這支裝置（localStorage），完全不會送到伺服器，也不會出現在真正各組的資料裡。
-var SIM_GROUP_NAME = '模擬組（只有你）';
+var SIM_GROUP_NAME = '模擬組';
 function getSimEquip(){
   try{ return JSON.parse(localStorage.getItem('crit.simEquip') || 'null') || {}; }catch(e){ return {}; }
 }
 function saveSimEquip(s){ try{ localStorage.setItem('crit.simEquip', JSON.stringify(s)); }catch(e){} }
 function blankEquipStatus(){ return { reported:false, reportedBySeat:'', reportedByName:'', reportedAt:null, confirmed:false }; }
+// 模擬組除了老師自己，再加 4 位模擬同學（只負責佔輪值順序、讓畫面像一組真的 5 個人，不會自己動作）。
+var SIM_MATES = [
+  { seat:'91', name:'模擬同學甲' }, { seat:'92', name:'模擬同學乙' },
+  { seat:'93', name:'模擬同學丙' }, { seat:'94', name:'模擬同學丁' }
+];
 function simGroupFor(eq){
   var sim = getSimEquip();
   var n = (eq && eq.itemTypes ? eq.itemTypes.length : 0);
   var statuses = [];
   for(var i=0;i<n;i++) statuses.push((sim.statuses||[])[i] || blankEquipStatus());
+  var members = [ { seat:TEST_SEAT, name:TEST_NAME, present:true } ].concat(SIM_MATES.map(function(m){ return { seat:m.seat, name:m.name, present:true }; }));
+  // 輪值順序第一次用到時隨機排好、存起來，之後重新整理都一樣（跟真的分組「排一次就固定」一樣）；按「重設模擬」會重新隨機排
+  if(!sim.order || sim.order.length !== members.length){
+    var seats = members.map(function(m){ return m.seat; });
+    for(var k = seats.length - 1; k > 0; k--){ var j = Math.floor(Math.random() * (k + 1)); var tmp = seats[k]; seats[k] = seats[j]; seats[j] = tmp; }
+    sim.order = seats;
+    saveSimEquip(sim);
+  }
+  var bySeat = {}; members.forEach(function(m){ bySeat[m.seat] = m; });
+  var order = sim.order.map(function(s){ return { seat:s, name:bySeat[s].name }; });
   return {
     name: SIM_GROUP_NAME, sim: true,
-    members: [ { seat:TEST_SEAT, name:TEST_NAME, present:true } ],
-    order: [ { seat:TEST_SEAT, name:TEST_NAME } ],
-    leader: TEST_SEAT, equipmentStatus: statuses,
+    members: members, order: order,
+    leader: order[0].seat, equipmentStatus: statuses,
     waivedSeats: sim.waivedSeats || [], waiverLog: sim.waiverLog || []
   };
 }
@@ -1812,7 +1826,7 @@ function screenEquipment(){
 function simControlsHtml(){
   return (
     '<div class="card" style="margin-top:10px">' +
-      '<p class="hint">【測試帳號專用，學生看不到】這是模擬的一個人一組：計時跟全班同步，勾選與放棄都只存在這支裝置，不會送到伺服器。</p>' +
+      '<p class="hint">【測試帳號專用，學生看不到】這是模擬的一組：你加 4 位模擬同學（甲乙丙丁，只佔輪值順序、不會自己動作）。計時跟全班同步，勾選與放棄都只存在這支裝置，不會送到伺服器。「重設模擬」會清掉狀態並重新隨機排順序。</p>' +
       '<div class="cta-row">' +
         '<button type="button" class="btn btn-accent" id="simConfirmAll">模擬老師按確認收到</button>' +
         '<button type="button" class="btn btn-accent" id="simReset">重設模擬</button>' +
@@ -2255,8 +2269,8 @@ function handleEquipReportReturned(group){
   });
   if(group.sim){
     // 99 號測試帳號的模擬分組：只更新這支裝置上的模擬狀態，不送伺服器
+    var current = simGroupFor(equipmentData).equipmentStatus; // 先呼叫，確保順序已經存好，下面再讀最新狀態
     var simState = getSimEquip();
-    var current = simGroupFor(equipmentData).equipmentStatus;
     simState.statuses = items.map(function(_, i){
       var st = current[i];
       if(statuses[i] === !!st.reported) return st;
@@ -3387,11 +3401,12 @@ function attachHandlers(){
       return;
     }
     if(e.target.closest('#simConfirmAll')){
-      var simC = getSimEquip();
-      simC.statuses = simGroupFor(equipmentData).equipmentStatus.map(function(st){
+      var simStatuses = simGroupFor(equipmentData).equipmentStatus.map(function(st){
         if(st.reported) st.confirmed = true;
         return st;
       });
+      var simC = getSimEquip();
+      simC.statuses = simStatuses;
       saveSimEquip(simC);
       setToast('success','（模擬）老師已確認收到已回報的器材。');
       render();
@@ -3408,7 +3423,7 @@ function attachHandlers(){
       if(!confirm('確定要放棄這次使用機會嗎？你剩下的時間會平分給還沒輪到的組員，這個動作沒辦法收回。')) return;
       var waiveGroup = findMyGroup(equipmentData);
       if(waiveGroup && waiveGroup.sim){
-        var simWaive = getSimEquip();
+        var simWaive = getSimEquip(); // waiveGroup 是剛剛 findMyGroup 算出來的，順序已經存好了
         simWaive.waivedSeats = [TEST_SEAT];
         simWaive.waiverLog = [ { seat:TEST_SEAT, name:TEST_NAME, at:Date.now() } ];
         saveSimEquip(simWaive);
