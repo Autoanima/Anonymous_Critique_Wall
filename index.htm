@@ -2576,11 +2576,11 @@ function navHtml(role){
       '</div>' +
     '</header>';
   }
-  // 老師已經登入過教師模式的話，左上角換成一顆「教師模式」按鈕，一點就切回去（不用再輸入密語）；
-  // 學生的裝置沒登入過教師模式，看到的還是原本的標題。
-  var brandHtml = teacherAuthPasscode()
-    ? '<div class="brand"><span class="brand-mark">&#9686;</span><button type="button" class="teacher-mode-btn" data-nav="teacher" title="回到教師模式">教師模式</button></div>'
-    : '<div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>';
+  // 老師登入過教師模式的裝置，在學生模式測試時，畫面要跟學生看到的一模一樣，唯一的差別是
+  // 左上角的標題可以點，一點就切回教師模式（不用再輸入密語）——所以只是在原本的標題上多一個點擊目標，
+  // 外觀完全不變；學生的裝置沒登入過教師模式，這個標題就只是文字。
+  var teacherCanReturn = !!teacherAuthPasscode();
+  var brandHtml = '<div class="brand"'+(teacherCanReturn ? ' data-nav="teacher" role="button" style="cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none"' : '')+'><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>';
   return '<header class="topbar"><div class="topbar-top">'+brandHtml+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','評分')+btn('gallery','作品牆')+btn('equipment','借器材')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
 }
 
