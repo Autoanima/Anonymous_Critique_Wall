@@ -1043,16 +1043,18 @@ function screenConnect(){
 }
 
 /**
- * 首頁「匿名評圖牆」標題上面的作業要求說明：可以切換不同作業看各自的要求文字
- * （文字內容由老師在教師設定裡填寫），下面附一個「交作品」連結直接跳去交作品頁面
- * 並帶入這份作業，不用自己再選一次。
+ * 「交作品」頁最上面的作業要求說明：可以切換不同作業看各自的要求文字
+ * （文字內容由老師在教師設定裡填寫），下面附一個「交作品」按鈕直接打開這份作業的繳交表單，
+ * 不用自己再選一次。如果已經打開某份作業的表單，說明就跟著那份作業走。
  */
 function homeAssignmentDescriptionHtml(){
   if(!homeStats || !homeStats.assignments || !homeStats.assignments.length) return '';
   var assignments = homeStats.assignments;
   var stillValid = homeDescAssignment!=null && assignments.some(function(a){ return normAssignment(a)===normAssignment(homeDescAssignment); });
   if(!stillValid) homeDescAssignment = assignments[0];
+  if(submitTargetAssignment && assignments.some(function(a){ return normAssignment(a)===normAssignment(submitTargetAssignment); })) homeDescAssignment = submitTargetAssignment;
   var current = homeDescAssignment;
+  var formOpenForCurrent = submitTargetAssignment!=null && normAssignment(submitTargetAssignment)===normAssignment(current);
   var chips = assignments.map(function(a){
     var active = normAssignment(a)===normAssignment(current);
     return '<button type="button" class="assignment-chip'+(active?' assignment-chip-active':'')+'" data-home-desc-assignment="'+escapeAttr(a)+'">'+escapeHtml(a)+'</button>';
@@ -1064,41 +1066,14 @@ function homeAssignmentDescriptionHtml(){
       '<p class="hint">作業要求說明</p>' +
       '<div class="assignment-chip-scroll">'+chips+'</div>' +
       '<p style="margin-top:10px;line-height:1.7">'+descHtml+'</p>' +
-      '<button type="button" class="btn btn-primary" data-home-desc-submit="'+escapeAttr(current)+'" style="width:100%;margin-top:10px">交作品</button>' +
+      (formOpenForCurrent ? '' : '<button type="button" class="btn btn-primary" data-home-desc-submit="'+escapeAttr(current)+'" style="width:100%;margin-top:10px">交作品</button>') +
     '</div>'
   );
 }
 function screenHome(){
-  var identityHtml = identitySectionHtml();
-  var quickHtml = quickIdentitySwitcherHtml();
-  var descHtml = homeAssignmentDescriptionHtml();
-  var setupHint = !apiUrl ? '<p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址。</p>' : '';
-  if(!apiUrl){
-    return identityHtml + quickHtml + descHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="lede">具名交作品，匿名互評分數。</p>'+setupHint+'</section>';
-  }
-  if(!homeStats){
-    return identityHtml + quickHtml + descHtml + '<section class="hero"><h1>匿名評圖牆</h1><p class="hint">載入中...</p></section>';
-  }
-  return (
-    identityHtml +
-    quickHtml +
-    descHtml +
-    '<section class="hero">' +
-      '<h1>匿名評圖牆</h1>' +
-      '<p class="lede">具名交作品，匿名互評分數。老師指定的題目由同學打 1～5 分，全部完成後自動算出平均分數與排名。</p>' +
-      '<div class="stat-row">' +
-        statTile(homeStats.submissionCount, '件作品') +
-        statTile(homeStats.reviewCount, '筆評分') +
-        statTile(homeStats.reviewsPerStudent, '每人需評幾件') +
-      '</div>' +
-      '<ol class="steps">' +
-        '<li>先設定座號和姓名，系統會記住，之後不用重填。</li>' +
-        '<li>交出你的作品，系統會給你一個匿名編號。</li>' +
-        '<li>接著幫忙評分：系統會隨機挑其他同學的作品給你評，不會評到自己的。</li>' +
-        '<li>全班評完後，老師會看到總表跟排名。</li>' +
-      '</ol>' +
-    '</section>'
-  );
+  // 首頁只留身分設定；原本的標題、說明文字、統計數字和使用步驟已經拿掉。
+  var setupHint = !apiUrl ? '<div class="card"><p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址。</p></div>' : '';
+  return identitySectionHtml() + quickIdentitySwitcherHtml() + setupHint;
 }
 
 function assignmentSelectHtml(id, includeAll, selected){
@@ -1185,6 +1160,7 @@ function screenSubmit(){
   }
   return (
     '<h1 class="screen-title">交作品</h1>' +
+    homeAssignmentDescriptionHtml() +
     checklistHtml() +
     formHtml
   );
@@ -2943,6 +2919,13 @@ function loadHome(){
   apiGet('home').then(function(json){ homeStats = json; swrSave('home', json); markCritical('home'); render(); })
     .catch(function(e){ markCritical('home'); setToast('error','無法連上資料庫：'+e.message); render(); });
 }
+/** 作業要求說明的文字在「首頁」那支 API 裡；直接落在交作品頁（沒經過首頁）的時候補抓一次。 */
+function ensureHomeStats(){
+  if(!apiUrl) return;
+  if(!homeStats) homeStats = swrLoad('home');
+  if(homeStats && homeStats.assignmentDescriptions) return;
+  apiGet('home').then(function(json){ homeStats = json; swrSave('home', json); render(); }).catch(function(){});
+}
 function loadMySubs(){
   if(!hasIdentity() || !apiUrl){ mySubs = []; markCritical('subs'); render(); return; }
   var norm = identityNorm();
@@ -3066,7 +3049,7 @@ function goTo(role){
   if(role !== 'teacher' && teacherAutoRefreshTimer){ clearInterval(teacherAutoRefreshTimer); teacherAutoRefreshTimer = null; }
   setRole(role);
   if(role==='home') loadHome();
-  else if(role==='submit') loadMySubs();
+  else if(role==='submit'){ loadMySubs(); ensureHomeStats(); }
   else if(role==='review'){
     if(hasIdentity()){
       if(!reviewAssignment && assignmentsList.length===1) reviewAssignment = assignmentsList[0];
@@ -3490,7 +3473,9 @@ function attachHandlers(){
     if(homeDescSubmit){
       submitTargetAssignment = homeDescSubmit.getAttribute('data-home-desc-submit');
       pendingImage = null;
-      goTo('submit');
+      render();
+      var openedForm = document.getElementById('submitForm');
+      if(openedForm && openedForm.scrollIntoView) openedForm.scrollIntoView({ behavior:'smooth', block:'start' });
       return;
     }
     var dot = e.target.closest('.score-dot');
