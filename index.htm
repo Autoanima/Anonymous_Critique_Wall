@@ -181,6 +181,63 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .grade-table th.th-sort:hover{color:var(--ink);}
 .grade-table th.th-sort-active{color:var(--accent-strong);}
 .grade-table th.crit-th,.grade-table td.title-cell{max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* 首頁榮譽榜：頒獎台＋人氣獎 */
+.honors{overflow:hidden;}
+.honors-title{display:flex;align-items:center;gap:8px;font-family:'Noto Serif TC',serif;font-size:1.15rem;font-weight:700;margin:0 0 8px;}
+.honors-sub{margin:0 0 6px;}
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:8px;margin:14px 0 6px;}
+.podium-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;--c:#C5CBD3;--h:46px;--d:.35s;}
+.podium-r1{--c:#F2C14E;--h:72px;--d:.65s;flex-grow:1.2;}
+.podium-r2{--c:#C5CBD3;--h:50px;--d:.35s;}
+.podium-r3{--c:#CD8B55;--h:34px;--d:.05s;}
+.podium-medal{font-size:1.7rem;line-height:1;animation:medalPop .55s cubic-bezier(.2,1.4,.4,1) both;animation-delay:calc(var(--d) + .5s);}
+.podium-r1 .podium-medal{font-size:2.3rem;}
+.podium-img{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;border:2px solid var(--c);margin:6px 0;background:var(--surface-2);font-size:2rem;color:var(--ink-soft);cursor:zoom-in;}
+.podium-r1 .podium-img{box-shadow:0 0 0 3px var(--c),0 8px 26px rgba(242,193,78,0.38);}
+.podium-name{font-weight:700;font-size:0.85rem;line-height:1.35;overflow-wrap:anywhere;}
+.podium-score{font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--accent-strong);}
+.podium-base{display:flex;align-items:flex-start;justify-content:center;width:100%;height:var(--h);margin-top:8px;border-radius:10px 10px 0 0;background:linear-gradient(180deg,var(--c),rgba(0,0,0,0.12));transform-origin:bottom;animation:podiumRise .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:var(--d);color:#1a1a1a;font-weight:800;font-size:1.3rem;padding-top:6px;}
+.podium-mystery .podium-medal{opacity:0.45;filter:grayscale(1);}
+.podium-mystery .podium-img{border-style:dashed;}
+.award-tag{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;background:#F2C14E;color:#1a1a1a;font-size:0.72rem;font-weight:800;vertical-align:middle;white-space:nowrap;}
+.honors-row{display:flex;align-items:center;gap:10px;margin:8px 0;}
+.honors-row .podium-img{width:48px;margin:0;border-radius:10px;font-size:1.2rem;}
+.honors-row-medal{font-size:1.6rem;flex:none;}
+.popular{display:flex;align-items:center;gap:12px;margin-top:14px;padding:10px 12px;border-radius:14px;border:1px solid #ff8a65;background:linear-gradient(90deg,rgba(255,138,101,0.16),rgba(255,138,101,0.03));animation:medalPop .6s ease both;animation-delay:1s;}
+.popular .podium-img{width:64px;margin:0;border-color:#ff8a65;flex:none;}
+.popular-badge{font-weight:800;color:#ff8a65;font-size:0.95rem;}
+.honors-lock{text-align:center;}
+.honors-progress{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin:8px 0 4px;}
+.honors-progress span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),#F2C14E);transition:width .6s ease;}
+@keyframes podiumRise{from{transform:scaleY(0);opacity:0;}to{transform:scaleY(1);opacity:1;}}
+@keyframes medalPop{from{transform:scale(0) rotate(-25deg);opacity:0;}to{transform:scale(1) rotate(0);opacity:1;}}
+@media (prefers-reduced-motion: reduce){ .podium-base,.podium-medal,.popular{animation:none;} }
+/* 點名區：左右兩欄（左＝分組狀況，右＝依座號＋加分按鈕），座號姓名放大 */
+.att-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;margin-top:8px;}
+.att-col{min-width:0;}
+.att-col-title{margin:0 0 4px;font-weight:700;color:var(--ink-soft);font-size:0.85rem;}
+.att-group{margin-top:0;margin-bottom:8px;padding:8px 10px;}
+.att-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;padding:7px 0;border-bottom:1px solid var(--line);}
+.att-row:last-child{border-bottom:none;}
+.att-label{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:8px;font-size:1.2rem;font-weight:700;line-height:1.3;cursor:pointer;overflow-wrap:anywhere;}
+.att-name{cursor:default;display:block;}
+.att-seat-row .att-name{flex:1 1 100%;}
+.att-seat-row .att-bonus{margin-left:0;justify-content:flex-start;width:100%;}
+.att-label input{width:22px;height:22px;flex:none;}
+.att-absent{color:var(--ink-soft);font-weight:500;font-size:0.8rem;white-space:nowrap;}
+.att-bonus{flex:none;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin-left:auto;}
+.att-bonus .btn{flex:none;padding:8px 12px;min-width:56px;font-size:1rem;font-weight:700;touch-action:manipulation;}
+.att-bonus .att-minus{background:#b3261e;color:#fff;border-color:#b3261e;}
+.att-total-neg{background:#b3261e;color:#fff;}
+.att-reason{display:block;margin:0 0 8px;font-size:0.8rem;color:var(--ink-soft);}
+.att-reason input{display:block;width:100%;margin-top:3px;padding:8px 10px;font-size:1rem;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);box-sizing:border-box;}
+.att-total{min-width:2.6em;text-align:center;}
+@media (max-width:420px){
+  .att-label{font-size:1.05rem;}
+  .att-bonus{gap:4px;}
+  .att-bonus .btn{padding:6px 8px;min-width:44px;font-size:0.9rem;}
+  .att-bonus .award-tag{font-size:0.7rem;padding:0 5px;}
+}
 .assignment-chip-scroll{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;padding:2px 14px;}
 .assignment-chip-scroll::-webkit-scrollbar{height:4px;}
 .assignment-chip{flex:none;scroll-snap-align:center;background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:9px 16px;font-size:0.9rem;font-weight:600;cursor:pointer;white-space:nowrap;}
@@ -399,6 +456,8 @@ function setApiUrl(u){ localStorage.setItem('crit.apiUrl', u); apiUrl = u; }
 
 var apiUrl = getApiUrl();
 var homeStats = null;
+var honors = null; // 首頁榮譽榜資料（honors API）：每份作業的前三名＋人氣獎，或還沒公布時的進度
+var honorsAssignment = null;
 var homeDescAssignment = null; // 首頁作業要求說明目前選的是哪一份作業，null 就預設選第一份
 var mySubs = null;
 var mySubsFor = null; // mySubs 是哪個身分的清單，換人之後不能拿別人的清單來先顯示
@@ -461,7 +520,7 @@ function deriveTeacherGalleryData(){
   return {
     rows: (teacherView.rows||[]).map(function(r){
       return { workCode:r.workCode, studentName:r.studentName, studentSeat:r.studentSeat, title:r.title, assignment:r.assignment,
-               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, baseOverall:r.baseOverall, bonus:r.bonus||0, returned:r.returned||null, count:r.count, unlocked:true };
+               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, baseOverall:r.baseOverall, bonus:r.bonus||0, bonusNote:r.bonusNote||null, returned:r.returned||null, count:r.count, unlocked:true };
     }),
     criteria: cfg.criteria, assignments: cfg.assignments||[],
     revealMinReviewers: cfg.revealMinReviewers, revealMinReviews: cfg.revealMinReviews, revealProgress: {}
@@ -1070,10 +1129,144 @@ function homeAssignmentDescriptionHtml(){
     '</div>'
   );
 }
+function honorsNameOf(w){ return (w.seat ? w.seat+'號 ' : '') + (w.name || ''); }
+function honorsImgHtml(link, extraClass){
+  var embed = toEmbed(link);
+  if(embed && embed.kind==='image') return '<img class="podium-img thumb-zoomable '+(extraClass||'')+'" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(driveThumbSrc(embed.src,300))+'" alt="">';
+  return '<div class="podium-img '+(extraClass||'')+'">🖼️</div>';
+}
+function honorsItemById(a){
+  if(!honors || !honors.items) return null;
+  for(var i=0;i<honors.items.length;i++) if(normAssignment(honors.items[i].assignment)===normAssignment(a)) return honors.items[i];
+  return null;
+}
+/**
+ * 首頁榮譽榜：選一份作業，已公布的顯示頒獎台（第 2、1、3 名由左到右，冠軍最高、有獎牌彈出動畫）＋人氣獎；
+ * 還沒公布的顯示「封印中」的神祕頒獎台和解鎖進度條（還差幾位同學評完），讓大家有動力趕快評分。
+ */
+function honorsHtml(){
+  if(!honors || !honors.items || !honors.items.length) return '';
+  var items = honors.items;
+  var valid = honorsAssignment!=null && items.some(function(it){ return normAssignment(it.assignment)===normAssignment(honorsAssignment); });
+  if(!valid){
+    var unlockedItems = items.filter(function(it){ return it.unlocked; });
+    honorsAssignment = (unlockedItems.length ? unlockedItems[unlockedItems.length-1] : items[items.length-1]).assignment;
+  }
+  var cur = honorsItemById(honorsAssignment);
+  var chips = items.map(function(it){
+    var active = normAssignment(it.assignment)===normAssignment(honorsAssignment);
+    return '<button type="button" class="assignment-chip'+(active?' assignment-chip-active':'')+'" data-honors-assignment="'+escapeAttr(it.assignment)+'">'+(it.unlocked?'🏆 ':'🔒 ')+escapeHtml(it.assignment)+'</button>';
+  }).join('');
+  var body;
+  var MEDALS = { 1:'🥇', 2:'🥈', 3:'🥉' };
+  function tag(w){ return w.awarded ? '<span class="award-tag" title="已登記榮譽榜加分">＋0.5</span>' : ''; }
+  if(!cur.unlocked){
+    var need = Math.max(0, (cur.need||0) - (cur.have||0));
+    var pct = cur.need ? Math.min(100, Math.round(cur.have / cur.need * 100)) : 0;
+    var mysteryCol = function(rank){
+      return '<div class="podium-col podium-r'+rank+' podium-mystery"><div class="podium-medal">'+MEDALS[rank]+'</div><div class="podium-img">？</div><div class="podium-name">？？？</div><div class="podium-base">'+rank+'</div></div>';
+    };
+    body = '<div class="honors-lock">' +
+      '<div class="podium">'+mysteryCol(2)+mysteryCol(1)+mysteryCol(3)+'</div>' +
+      '<p style="margin:10px 0 0;font-weight:700">🎁 榜單還在封印中！</p>' +
+      '<p class="hint" style="margin:4px 0">再有 <strong>'+need+'</strong> 位同學各評滿 '+(honors.revealMinReviews||5)+' 件，這份作業的前三名和人氣獎就揭曉</p>' +
+      '<div class="honors-progress"><span style="width:'+pct+'%"></span></div>' +
+      '<p class="hint" style="margin:0">解鎖進度 '+(cur.have||0)+' / '+(cur.need||0)+' 位</p>' +
+    '</div>';
+  } else {
+    var top = cur.top || [];
+    var isPodium = top.length===3 && top[0].rank===1 && top[1].rank===2 && top[2].rank===3;
+    var topHtml;
+    if(isPodium){
+      var col = function(w){
+        return '<div class="podium-col podium-r'+w.rank+'"><div class="podium-medal">'+MEDALS[w.rank]+'</div>' + honorsImgHtml(w.driveLink) +
+          '<div class="podium-name">'+escapeHtml(honorsNameOf(w))+tag(w)+'</div><div class="podium-score">'+w.score.toFixed(2)+'</div>' +
+          '<div class="podium-base">'+w.rank+'</div></div>';
+      };
+      topHtml = '<div class="podium">'+col(top[1])+col(top[0])+col(top[2])+'</div>';
+    } else {
+      topHtml = top.map(function(w){
+        return '<div class="honors-row"><span class="honors-row-medal">'+MEDALS[w.rank]+'</span>' + honorsImgHtml(w.driveLink) +
+          '<div><div class="podium-name">'+escapeHtml(honorsNameOf(w))+tag(w)+'</div><div class="podium-score">第 '+w.rank+' 名 · '+w.score.toFixed(2)+'</div></div></div>';
+      }).join('') || '<p class="hint">這份作業還沒有作品有分數。</p>';
+    }
+    var pop = cur.popular
+      ? '<div class="popular">' + honorsImgHtml(cur.popular.driveLink) +
+          '<div><div class="popular-badge">🔥 人氣獎</div><div class="podium-name">'+escapeHtml(honorsNameOf(cur.popular))+tag(cur.popular)+'</div>' +
+          '<div class="hint" style="margin:2px 0 0">「'+escapeHtml(cur.popular.label)+'」平均最高 '+cur.popular.score.toFixed(2)+'</div></div></div>'
+      : '';
+    body = topHtml + pop;
+  }
+  return (
+    '<div class="card honors">' +
+      '<p class="honors-title">🏆 榮譽榜</p>' +
+      '<div class="assignment-chip-scroll" style="margin:0 -14px 4px">'+chips+'</div>' +
+      body +
+    '</div>'
+  );
+}
+function loadHonors(){
+  if(!apiUrl) return;
+  if(!honors) honors = swrLoad('honors1');
+  apiGet('honors').then(function(res){
+    if(!res || !res.ok || !Array.isArray(res.items)) return;
+    honors = res; swrSave('honors1', res);
+    var role = getRole();
+    if(role==='home' || role==='teacher') render();
+  }).catch(function(){});
+}
+/**
+ * 教師總表上方：登記榮譽榜加分。每份已公布的作業一列，列出目前榜上的得獎作者，
+ * 確認後按「登記」→ 每位得獎作者額外加 0.5 分總分，並記錄到試算表「榮譽榜加分」分頁。
+ */
+function teacherAwardsCardHtml(){
+  if(!teacherView || !teacherView.config) return '';
+  var items = (honors && honors.items) ? honors.items.filter(function(it){ return it.unlocked; }) : [];
+  var awards = teacherView.config.awardsByWork || {};
+  var rows = items.map(function(it){
+    var registered = Object.keys(awards).filter(function(c){ return normAssignment(awards[c].assignment)===normAssignment(it.assignment); });
+    var names = (it.top||[]).map(function(w){ return w.rank<=3 ? ({1:'🥇',2:'🥈',3:'🥉'})[w.rank]+honorsNameOf(w) : ''; });
+    if(it.popular) names.push('🔥'+honorsNameOf(it.popular));
+    return '<div style="margin:10px 0;padding-top:8px;border-top:1px solid var(--line)">' +
+      '<strong>'+escapeHtml(it.assignment)+'</strong>' +
+      (registered.length ? ' <span class="award-tag">已登記 '+registered.length+' 位</span>' : ' <span class="hint">尚未登記</span>') +
+      '<p class="hint" style="margin:4px 0 8px">'+escapeHtml(names.join('　'))+'</p>' +
+      '<div class="cta-row">' +
+        '<button type="button" class="btn btn-accent" data-award-register="'+escapeAttr(it.assignment)+'">'+(registered.length?'重新登記':'登記榮譽榜加分')+'</button>' +
+        (registered.length ? '<button type="button" class="btn btn-accent" data-award-undo="'+escapeAttr(it.assignment)+'">取消登記</button>' : '') +
+      '</div></div>';
+  }).join('');
+  return '<div class="card"><h2 class="screen-title" style="font-size:1rem">🏆 榮譽榜加分</h2>' +
+    '<p class="hint">每份作業的前三名和人氣獎作者，每人額外加 0.5 分總分。榜單會隨評分變動，確定名單後按「登記」，會記錄到試算表「榮譽榜加分」分頁；加分另外計算，不會改變作品牆的總平均和名次。</p>' +
+    (rows || '<p class="hint">目前還沒有作業公布榮譽榜（要等評完的同學達到門檻）。</p>') + '</div>';
+}
+function handleRegisterAwards(assignment, undo){
+  var pass = teacherAuthPasscode();
+  if(!pass){ alert('教師密語已失效，請重新登入教師專區。'); return; }
+  function failText(res){
+    if(res && res.error==='not_unlocked') return '這份作業還沒公布榮譽榜，不能登記。';
+    if(res && res.error==='unauthorized') return '教師密語不對。';
+    return '伺服器沒有處理成功（請確認 Code.gs 已經重新部署最新版）。';
+  }
+  var base = { passcode: pass, assignment: assignment, undo: !!undo };
+  apiGet('teacherRegisterAwards', Object.assign({ dryRun: true }, base)).then(function(res){
+    if(!res || !res.ok){ alert(failText(res)); return; }
+    var lines = (res.winners||[]).map(function(w){ return w.kind+'　'+honorsNameOf(w); }).join('\n');
+    var msg = undo
+      ? '要取消「'+assignment+'」已登記的榮譽榜加分嗎？\n\n目前已登記：\n' + (res.previous||[]).map(function(w){ return w.kind+'　'+honorsNameOf(w); }).join('\n')
+      : '要登記「'+assignment+'」的榮譽榜嗎？以下每位作者額外加 0.5 分總分：\n\n' + lines + ((res.previous||[]).length ? '\n\n（之前登記的 '+res.previous.length+' 位會先取消，再登記上面這份名單）' : '');
+    if(!confirm(msg)) return;
+    return apiGet('teacherRegisterAwards', base).then(function(done){
+      if(!done || !done.ok){ alert(failText(done)); return; }
+      alert(undo ? '已取消登記。' : '已登記 '+done.winners.length+' 位得獎作者，每人加 0.5 分。可以到試算表「榮譽榜加分」分頁查看。');
+      return apiGet('teacherFetch', { passcode: pass }).then(function(t){ if(t && t.ok){ teacherView = t; } loadHonors(); render(); });
+    });
+  }).catch(function(e){ alert('操作沒有成功：'+e.message); });
+}
 function screenHome(){
   // 首頁只留身分設定；原本的標題、說明文字、統計數字和使用步驟已經拿掉。
   var setupHint = !apiUrl ? '<div class="card"><p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址。</p></div>' : '';
-  return identitySectionHtml() + quickIdentitySwitcherHtml() + setupHint;
+  return identitySectionHtml() + quickIdentitySwitcherHtml() + honorsHtml() + setupHint;
 }
 
 function assignmentSelectHtml(id, includeAll, selected){
@@ -1507,7 +1700,8 @@ function slideBonusHtml(r){
     ? '<button type="button" class="btn btn-accent" data-return="undo">撤銷退回</button>'
     : '<button type="button" class="btn btn-return" data-return="1">退回</button>';
   var flag = '<button type="button" class="btn btn-accent" data-flag="1">評分異常</button>';
-  return '<div class="slide-bonus"><span>老師加分</span>'+btns+ret+flag+'</div>' +
+  var bonusReason = (cur > 0 && r.bonusNote) ? '<div class="slide-bonus-note" style="white-space:normal">加分原因：'+escapeHtml(r.bonusNote.reason||'')+(r.bonusNote.at ? '（'+new Date(r.bonusNote.at).toLocaleDateString('zh-TW')+'）' : '')+'</div>' : '';
+  return '<div class="slide-bonus"><span>老師加分</span>'+btns+ret+flag+'</div>' + bonusReason +
     (r.returned ? '<div class="slide-return-reason">退回原因：'+escapeHtml(r.returned.reason||'')+'</div>' : '');
 }
 /** 有加分的作品，在分數旁邊註明原本幾分、加了幾分（只有教師模式看得到）。 */
@@ -1603,7 +1797,10 @@ function handleSlideReturn(mode){
   var who = (r.studentSeat ? r.studentSeat+'號 ' : '') + (r.studentName || r.workCode);
   var reason = '';
   if(undo){
-    if(!confirm('要撤銷「'+who+'」這件作品的退回嗎？\n扣的 0.1 分會還原，作品也會重新出現在作品牆。')) return;
+    var undoInput = prompt('撤銷「'+who+'」這件作品的退回。\n扣的 0.1 分會還原，作品也會重新出現在作品牆。\n原因和日期會記錄在試算表。\n\n請輸入撤銷的原因：', '');
+    if(undoInput === null) return;
+    reason = undoInput.trim();
+    if(!reason){ alert('請輸入撤銷的原因。'); return; }
   } else {
     var input = prompt('退回「'+who+'」的作品。\n總平均會扣 0.1 分，原因和時間會記錄在試算表的「退回紀錄」分頁。\n\n請輸入退回原因：', prev ? prev.reason : '上傳的不是自己的作業');
     if(input === null) return;
@@ -1626,16 +1823,23 @@ function handleSlideBonus(n){
   if(!rows.length) return;
   var r = rows[((slideshowIndex % rows.length) + rows.length) % rows.length];
   var prev = r.bonus || 0;
+  var prevNote = r.bonusNote || null;
   if(prev === n) return;
   var pass = teacherAuthPasscode();
   if(!pass){ alert('教師密語已失效，請先關閉播放、重新登入教師模式再加分。'); return; }
+  var who = (r.studentSeat ? r.studentSeat+'號 ' : '') + (r.studentName || r.workCode);
+  // 加分、取消加分都要寫原因，會連同日期記錄到試算表「加扣分紀錄」
+  var input = prompt((n === 0 ? '取消「'+who+'」這件作品的老師加分' : '幫「'+who+'」這件作品加 '+n+' 分')+'。\n原因和日期會記錄在試算表。\n\n請輸入原因：', n === 0 ? '' : (prevNote ? prevNote.reason : ''));
+  if(input === null) return;
+  var reason = input.trim();
+  if(!reason){ alert('請輸入原因。'); return; }
   var code = r.workCode;
   if(slideshowPlaying){ slideshowPlaying = false; stopSlideTimer(); } // 加分時先暫停自動播放，免得按到一半換張
-  applyBonusLocal(code, n);
-  apiGet('teacherSetBonus', { passcode: pass, workCode: code, bonus: n }).then(function(res){
+  applyWorkLocal(code, { bonus: n, bonusNote: n > 0 ? { reason: reason, at: Date.now() } : null });
+  apiGet('teacherSetBonus', { passcode: pass, workCode: code, bonus: n, reason: reason }).then(function(res){
     if(!res || !res.ok) throw new Error(res && res.error === 'unauthorized' ? '教師密語不對' : '伺服器沒有存成功（請確認 Code.gs 已經重新部署最新版）');
   }).catch(function(e){
-    applyBonusLocal(code, prev);
+    applyWorkLocal(code, { bonus: prev, bonusNote: prevNote });
     alert('加分沒有存成功，已改回原本的分數：' + e.message);
   });
 }
@@ -2262,6 +2466,67 @@ function parseGroupsText(text){
 function sortedAttendanceMembers(g){
   return g.members.slice().sort(function(a,b){ return seatNumFor(a.seat)-seatNumFor(b.seat); });
 }
+/** 點名加分用的座號 key：去掉前面的 0（01 跟 1 算同一個人），跟伺服器 canonSeatServer 一致。 */
+function attKey(seat){ return toHalfWidth(String(seat==null?'':seat)).replace(/\s+/g,'').toLowerCase().replace(/^0+(?=\d)/,''); }
+function attBonusPoints(seat){
+  var map = teacherView && teacherView.config && teacherView.config.attendanceBonus;
+  var rec = map && map[attKey(seat)];
+  return rec ? (rec.points||0) : 0;
+}
+function attBonusInnerHtml(seat, name){
+  var pts = attBonusPoints(seat);
+  var total = pts * 0.5;
+  return (pts!==0 ? '<span class="award-tag att-total'+(pts<0?' att-total-neg':'')+'" title="這位同學目前累計的點名加扣分">'+(total>0?'＋':'−')+Math.abs(total)+'</span>' : '') +
+    '<button type="button" class="btn btn-accent att-minus" data-att-bonus="-1" data-seat="'+escapeAttr(seat)+'" data-name="'+escapeAttr(name)+'">扣分</button>' +
+    '<button type="button" class="btn btn-primary" data-att-bonus="1" data-seat="'+escapeAttr(seat)+'" data-name="'+escapeAttr(name)+'">加分</button>';
+}
+/** 只更新這位同學那一格的加分區，不整頁重畫——不然老師已經勾了還沒按「儲存點名結果」的出缺席會被洗掉。 */
+function updateAttBonusDom(seat, name){
+  var key = attKey(seat);
+  document.querySelectorAll('.att-bonus').forEach(function(el){
+    if(el.getAttribute('data-att-seat')===key) el.innerHTML = attBonusInnerHtml(seat, name);
+  });
+}
+var attBonusPending = 0;
+/**
+ * 點名區幫同學加分（或撤回）：畫面先加，馬上看到累計；再送到伺服器記錄。
+ * 連續快按時，伺服器回來的數字可能亂序，所以等所有請求都回來了才用伺服器的累計為準。
+ */
+function handleAttendanceBonus(seat, name, delta){
+  var pass = teacherAuthPasscode();
+  if(!pass){ alert('教師密語已失效，請重新登入教師專區。'); return; }
+  if(!teacherView || !teacherView.config){ alert('資料還在載入，請稍後再按。'); return; }
+  // 每一次加分、扣分都要寫原因（會一起記錄到試算表）；原因欄位的內容會記在這台裝置，下次不用重打
+  var reasonEl = document.getElementById('attReason');
+  var reason = reasonEl ? reasonEl.value.trim() : (localStorage.getItem('crit.attReason') || '').trim();
+  if(!reason){ alert('請先在上方「加扣分原因」欄位填寫原因，才能加分或扣分。'); if(reasonEl) reasonEl.focus(); return; }
+  try{ localStorage.setItem('crit.attReason', reason); }catch(e){}
+  var key = attKey(seat);
+  var map = teacherView.config.attendanceBonus = teacherView.config.attendanceBonus || {};
+  var rec = map[key] || { seat: seat, name: name, points: 0 };
+  rec.points = (rec.points||0) + delta;
+  if(rec.points !== 0) map[key] = rec; else delete map[key];
+  attBonusPending++;
+  updateAttBonusDom(seat, name);
+  apiGet('teacherAttendanceBonus', { passcode: pass, seat: seat, name: name, delta: delta, reason: reason }).then(function(res){
+    if(!res || !res.ok) throw new Error(res && res.error==='unauthorized' ? '教師密語不對' : '伺服器沒有存成功（請確認 Code.gs 已經重新部署最新版）');
+    attBonusPending--;
+    if(attBonusPending===0 && typeof res.points==='number'){
+      var m2 = teacherView.config.attendanceBonus = teacherView.config.attendanceBonus || {};
+      if(res.points !== 0) m2[key] = { seat: seat, name: name, points: res.points }; else delete m2[key];
+      updateAttBonusDom(seat, name);
+    }
+  }).catch(function(e){
+    attBonusPending--;
+    // 失敗就把這一次改回去
+    var m3 = teacherView.config.attendanceBonus = teacherView.config.attendanceBonus || {};
+    var r3 = m3[key] || { seat: seat, name: name, points: 0 };
+    r3.points = (r3.points||0) - delta;
+    if(r3.points !== 0) m3[key] = r3; else delete m3[key];
+    updateAttBonusDom(seat, name);
+    alert('點名'+(delta>0?'加分':'扣分')+'沒有存成功，已改回：' + e.message);
+  });
+}
 function equipAttendanceHtml(eq){
   if(!eq){
     return '<div class="card"><p class="hint">載入中...</p></div>';
@@ -2269,22 +2534,38 @@ function equipAttendanceHtml(eq){
   if(!eq.groups || !eq.groups.length){
     return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材輪借管理」新增分組名單。</p></div>';
   }
+  // 左欄：分組狀況（每組一張卡，勾選有沒有來）
   var groupsHtml = eq.groups.map(function(g){
     var members = sortedAttendanceMembers(g);
     var attRows = members.map(function(m){
-      return '<label class="toggle-row"><input type="checkbox" class="equip-att" data-group="'+escapeAttr(g.name)+'" data-seat="'+escapeAttr(m.seat)+'" '+(m.present?'checked':'')+'> '+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':'（缺席）')+'</label>';
+      return '<div class="att-row"><label class="att-label"><input type="checkbox" class="equip-att" data-group="'+escapeAttr(g.name)+'" data-seat="'+escapeAttr(m.seat)+'" '+(m.present?'checked':'')+'> <span>'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':' <span class="att-absent">（缺席）</span>')+'</span></label></div>';
     }).join('');
     return (
-      '<div class="card" style="margin-top:10px">' +
+      '<div class="card att-group">' +
         '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'</h3>' +
         (attRows || '<p class="hint">這組還沒有組員。</p>') +
       '</div>'
     );
   }).join('');
+  // 右欄：全班依座號排列，每人一顆「加分」按鈕（按一次加 0.5 分總分）
+  var everyone = [];
+  eq.groups.forEach(function(g){ (g.members||[]).forEach(function(m){ everyone.push(m); }); });
+  everyone.sort(function(a,b){ return seatNumFor(a.seat)-seatNumFor(b.seat); });
+  var seatRows = everyone.map(function(m){
+    return '<div class="att-row att-seat-row">' +
+      '<span class="att-label att-name">'+escapeHtml(m.seat)+'號 '+escapeHtml(m.name)+(m.present?'':' <span class="att-absent">（缺席）</span>')+'</span>' +
+      '<span class="att-bonus" data-att-seat="'+escapeAttr(attKey(m.seat))+'">' + attBonusInnerHtml(m.seat, m.name) + '</span>' +
+    '</div>';
+  }).join('');
   return (
     '<div class="card">' +
-      '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材輪借的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。開始／暫停計時的按鈕放在最上面，隨時都點得到。</p>' +
-      groupsHtml +
+      '<p class="hint">左邊是分組狀況，勾選今天有出席的人（缺席的人不會出現在器材輪借的轉圈名單裡，晚到了改勾「有來」再存一次）。右邊依座號排列，「加分」按一次加 0.5 分總分、「扣分」按一次扣 0.5 分；每一次都要先填上方的原因，連同日期記錄到試算表「點名加分」和「加扣分紀錄」分頁（按錯了就按另一個按鈕加回去，原因寫「按錯」即可）。</p>' +
+      '<div class="att-cols">' +
+        '<div class="att-col"><p class="att-col-title">分組狀況</p>'+groupsHtml+'</div>' +
+        '<div class="att-col"><p class="att-col-title">依座號</p>' +
+          '<label class="att-reason"><span>加扣分原因（必填，會連同日期記錄）</span><input id="attReason" type="text" maxlength="60" value="'+escapeAttr(localStorage.getItem('crit.attReason') || '課堂表現良好')+'" placeholder="例如：課堂發言、忘記帶作業"></label>' +
+          '<div class="card att-group">'+(seatRows || '<p class="hint">沒有學生名單。</p>')+'</div></div>' +
+      '</div>' +
       '<button type="button" class="btn btn-primary" id="equipSaveAttendance" style="margin-top:10px;width:100%">儲存點名結果</button>' +
     '</div>'
   );
@@ -2636,7 +2917,7 @@ function screenTeacher(){
       '<td title="'+escapeAttr(r.assignment||'')+'">'+escapeHtml(r.assignment ? shortAssignment(r.assignment) : '—')+'</td>' +
       '<td class="title-cell">'+escapeHtml(r.title||'—')+'</td>' +
       cells +
-      '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+(r.bonus>0 && r.overall!=null ? ' <span class="hint" title="老師加分">＋'+r.bonus+'</span>' : '')+(r.returned ? ' <span class="returned-chip" title="'+escapeAttr('退回原因：'+(r.returned.reason||''))+'">退回 −0.1</span>' : '')+'</td>' +
+      '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+(r.bonus>0 && r.overall!=null ? ' <span class="hint" title="老師加分">＋'+r.bonus+'</span>' : '')+(r.returned ? ' <span class="returned-chip" title="'+escapeAttr('退回原因：'+(r.returned.reason||''))+'">退回 −0.1</span>' : '')+(r.award>0 ? ' <span class="award-tag" title="'+escapeAttr((r.awardKind||'榮譽榜')+'：額外加總分，含榮譽總分 '+(r.overall==null?'—':(r.overall+r.award).toFixed(2)))+'">＋'+r.award+' 榮譽</span>' : '')+'</td>' +
       '<td class="num"'+(underReviewed?' style="color:var(--warn);font-weight:700"':'')+' title="'+(underReviewed?'還差 '+(required-r.count)+' 份評分才滿老師設定的 '+required+' 份':'已收滿老師設定的 '+required+' 份評分')+'">'+r.count+(underReviewed?' ⚠':'')+'</td>' +
       '<td class="mono col-device" style="font-size:0.7rem;color:var(--ink-soft)">'+escapeHtml(r.deviceId||'—')+'</td>' +
     '</tr>';
@@ -2792,6 +3073,7 @@ function screenTeacher(){
           statTile(rows.reduce(function(sum,r){ return sum + (r.count||0); }, 0), '筆評分') +
           statTile(rows.filter(function(r){ return r.count>0; }).length, '已有分數') +
         '</div>' +
+        teacherAwardsCardHtml() +
         '<div class="cta-row">' +
           '<button class="btn btn-accent" id="refreshData">重新整理資料</button>' +
           '<button class="btn btn-accent" id="toggleNames">'+(namesHidden?'顯示姓名':'隱藏姓名')+'</button>' +
@@ -2916,6 +3198,7 @@ function loadHome(){
   if(!apiUrl){ homeStats=null; render(); return; }
   if(!homeStats) homeStats = swrLoad('home');
   render();
+  loadHonors();
   apiGet('home').then(function(json){ homeStats = json; swrSave('home', json); markCritical('home'); render(); })
     .catch(function(e){ markCritical('home'); setToast('error','無法連上資料庫：'+e.message); render(); });
 }
@@ -2983,6 +3266,7 @@ function loadTeacherView(){
     }
     teacherView = res;
     render();
+    loadHonors();
     if(!equipmentData) loadEquipment(); else ensureEquipmentTicking();
     if(localStorage.getItem('crit.teacherAutoRefresh')==='1') setTeacherAutoRefresh(true);
   }).catch(function(e){ setToast('error','連線失敗：'+e.message); setRole('home'); render(); });
@@ -3308,12 +3592,12 @@ function handleExportCsv(){
   criteria.forEach(function(c){ csvValueFns['crit:'+c.key] = function(r){ return r.perCrit[c.key]==null?-1:r.perCrit[c.key]; }; });
   rows = sortRows(rows, teacherSortKey, teacherSortDir, csvValueFns, 'studentSeat');
   // 匯出的欄位順序跟畫面上目前的排序、欄位順序保持一致，方便直接對照。
-  var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數','裝置代碼','教師加分','退回原因']);
+  var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數','裝置代碼','教師加分','退回原因','榮譽加分','含榮譽總分']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
     var cells = [i+1, r.studentSeat, r.studentName, r.assignment||'', r.title||''].concat(
       criteria.map(function(c){ var v=r.perCrit[c.key]; return v==null?'':v.toFixed(2); })
-    ).concat([r.overall==null?'':r.overall.toFixed(2), r.count, r.deviceId||'', r.bonus||'', r.returned ? r.returned.reason : '']);
+    ).concat([r.overall==null?'':r.overall.toFixed(2), r.count, r.deviceId||'', r.bonus||'', r.returned ? r.returned.reason : '', r.award>0 ? (r.awardKind+' ＋'+r.award) : '', r.overall==null ? '' : (r.overall+(r.award||0)).toFixed(2)]);
     lines.push(cells.map(csvCell).join(','));
   });
   var csv = '﻿' + lines.join('\r\n');
@@ -3617,6 +3901,14 @@ function attachHandlers(){
       slideshowPlaying = false; enterFullscreen(); render(); return;
     }
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
+    var attBtn = e.target.closest('[data-att-bonus]');
+    if(attBtn){ handleAttendanceBonus(attBtn.getAttribute('data-seat'), attBtn.getAttribute('data-name'), parseInt(attBtn.getAttribute('data-att-bonus'),10)); return; }
+    var honorsChip = e.target.closest('[data-honors-assignment]');
+    if(honorsChip){ honorsAssignment = honorsChip.getAttribute('data-honors-assignment'); render(); return; }
+    var awardReg = e.target.closest('[data-award-register]');
+    if(awardReg){ handleRegisterAwards(awardReg.getAttribute('data-award-register'), false); return; }
+    var awardUndo = e.target.closest('[data-award-undo]');
+    if(awardUndo){ handleRegisterAwards(awardUndo.getAttribute('data-award-undo'), true); return; }
     var flagBtn = e.target.closest('[data-flag]');
     if(flagBtn && slideshowIndex != null){ handleSlideFlag(); return; }
     var returnBtn = e.target.closest('[data-return]');
