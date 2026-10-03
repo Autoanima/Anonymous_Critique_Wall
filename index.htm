@@ -1698,7 +1698,7 @@ function slideshowHtml(){
         (hasScores ? '分數尚未公開，<br>達到公開門檻後才會顯示雷達圖。' : '這件作品目前收到的評分還不夠，<br>尚無法顯示雷達圖。') +
       '</div>';
   return (
-    '<div class="slideshow-overlay" style="--slide-scale:'+scale+'">' +
+    '<div class="slideshow-overlay" data-work="'+escapeAttr(r.workCode||'')+'" style="--slide-scale:'+scale+'">' +
       '<button type="button" class="slide-close" id="slideClose" aria-label="關閉">&times;</button>' +
       '<div class="slide-body">' +
         '<div class="slide-stage">'+galleryImageHtml(r)+'</div>' +
@@ -1763,6 +1763,25 @@ function slideReviewsPanelHtml(r){
     (rows || '<p class="rv-legend">這件作品還沒有人評分。</p>') +
   '</div>';
 }
+/**
+ * 打開／關閉／更新評分明細時，只換掉面板本身，不重畫整個播放視窗——
+ * 整個重畫會連照片、雷達圖一起重新建立，照片會閃一下（開面板時還會因為資料載入完再閃第二次）。
+ */
+function updateReviewsPanelDom(){
+  var ov = document.querySelector('.slideshow-overlay');
+  var rows = sortedGalleryRows();
+  if(!ov || !rows.length || slideshowIndex == null){ return; }
+  var r = rows[((slideshowIndex % rows.length) + rows.length) % rows.length];
+  var holder = document.createElement('div');
+  holder.innerHTML = slideReviewsPanelHtml(r);
+  var neu = holder.firstElementChild;
+  var old = ov.querySelector('.slide-reviews');
+  if(old && neu) old.replaceWith(neu);
+  else if(old) old.remove();
+  else if(neu) ov.insertBefore(neu, ov.querySelector('.slide-font-controls'));
+  var tb = ov.querySelector('.slide-bonus [data-reviews-toggle]');
+  if(tb) tb.textContent = slideReviewsOpen ? '關閉明細' : '評分明細';
+}
 function loadWorkReviews(code){
   var pass = teacherAuthPasscode();
   if(!pass || workReviewsLoading[code]) return;
@@ -1773,7 +1792,7 @@ function loadWorkReviews(code){
     workReviewsCache[code] = { error: '讀取失敗：' + e.message };
   }).then(function(){
     delete workReviewsLoading[code];
-    if(slideshowIndex != null && slideReviewsOpen) renderSlideshowOnly();
+    if(slideshowIndex != null && slideReviewsOpen) updateReviewsPanelDom();
   });
 }
 /** 老師加分列：只在教師模式的作品牆播放時出現。0＝不加分，1~3＝加幾分，總平均最高 5 分。 */
@@ -1870,7 +1889,7 @@ function handleSlideFlag(){
     return apiGet('teacherFlagReviews', base).then(function(done){
       if(!done || !done.ok){ alert(failText(done)); return; }
       alert(mode === 'clear' ? '已撤銷 '+done.cleared+' 位同學的登記。' : '已登記 '+done.added+' 位同學。可以到試算表的「評分異常紀錄」分頁查看。');
-      delete workReviewsCache[r.workCode]; if(slideshowIndex != null && slideReviewsOpen) renderSlideshowOnly();
+      delete workReviewsCache[r.workCode]; if(slideshowIndex != null && slideReviewsOpen) updateReviewsPanelDom();
     });
   }).catch(function(e){ alert('操作沒有成功：' + e.message); });
 }
@@ -1947,7 +1966,13 @@ function renderSlideshowOnly(){
   if(!old || !html){ render(); return; }
   var holder = document.createElement('div');
   holder.innerHTML = html;
-  old.replaceWith(holder.firstElementChild);
+  var neu = holder.firstElementChild;
+  // 還是同一件作品（只是加分、退回、調字級、打開明細這類操作）就沿用原本的照片節點，照片不重新載入、不會閃
+  if(old.getAttribute('data-work') === neu.getAttribute('data-work')){
+    var oldStage = old.querySelector('.slide-stage'), newStage = neu.querySelector('.slide-stage');
+    if(oldStage && newStage) newStage.replaceWith(oldStage);
+  }
+  old.replaceWith(neu);
   scheduleBackgroundPreload();
 }
 function startSlideTimer(){
@@ -3993,8 +4018,11 @@ function attachHandlers(){
     var rvBtn = e.target.closest('[data-reviews-toggle]');
     if(rvBtn && slideshowIndex != null){
       slideReviewsOpen = !slideReviewsOpen;
-      if(slideReviewsOpen && slideshowPlaying){ slideshowPlaying = false; stopSlideTimer(); } // 看明細時先暫停自動播放
-      renderSlideshowOnly();
+      if(slideReviewsOpen && slideshowPlaying){ // 看明細時先暫停自動播放（只改按鈕文字，不重畫播放視窗）
+        slideshowPlaying = false; stopSlideTimer();
+        var ppb = document.getElementById('slidePlayPause'); if(ppb) ppb.textContent = '播放';
+      }
+      updateReviewsPanelDom();
       return;
     }
     var attBtn = e.target.closest('[data-att-bonus]');
