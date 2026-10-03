@@ -190,11 +190,31 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
    螢幕比較窄的橫向（手機）繼續把長標題／作品名稱截斷成省略號；
    螢幕比較寬的橫向（大手機、平板）容得下，就讓標題整段換行完整顯示。 */
 @media (orientation:landscape) and (max-width:1000px){
-  .grade-table{min-width:0;font-size:0.62rem;}
-  .grade-table th,.grade-table td{padding:3px 4px;}
-  .grade-table thead th{font-size:0.58rem;}
-  .grade-table .mine-thumb{width:24px;height:24px;border-radius:5px;}
-  .grade-table th.crit-th,.grade-table td.title-cell{max-width:60px;}
+  .grade-table{min-width:0;font-size:0.72rem;}
+  .grade-table th,.grade-table td{padding:4px 6px;}
+  .grade-table thead th{font-size:0.64rem;}
+  .grade-table .mine-thumb{width:26px;height:26px;border-radius:5px;}
+  .grade-table th.crit-th,.grade-table td.title-cell{max-width:72px;}
+}
+@media (orientation:landscape) and (max-width:760px){
+  .grade-table .col-device{display:none;}
+}
+/* 教師模式的版面不用像學生頁面那樣限制在 560px 的窄條裡——表格欄位多，橫放手機或平板時要用滿整個寬度 */
+.shell-teacher{max-width:1100px;}
+/* 手機橫放：螢幕很矮，頂端列不能再疊成好幾排佔掉一半高度，改成橫向擺在同一排 */
+@media (orientation:landscape) and (max-height:520px){
+  .topbar{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px;padding-block:6px;}
+  .topbar>.topbar-top{flex:none;gap:12px;}
+  .topbar>.tabs:not(.tabs-scroll){flex:1 1 260px;}
+  .topbar>#equipMiniBarSlot{flex:1 1 100%;}
+  .equip-mini-label{margin-bottom:2px;}
+  .equip-mini .rotation-track-compact{height:28px;}
+  .equip-mini .rotation-track-compact .rotation-seat{font-size:0.8rem;}
+  .equip-mini .rotation-track-compact .rotation-name{display:none;}
+  .topbar-teacher{flex-wrap:nowrap;}
+  .topbar-teacher>.teacher-bar{flex:none;}
+  .topbar-teacher>.teacher-tabs-row{flex:1;min-width:0;}
+  .content{padding-top:12px;}
 }
 @media (orientation:landscape) and (min-width:1001px){
   .grade-table th.crit-th{white-space:normal;overflow:visible;text-overflow:clip;max-width:160px;line-height:1.3;}
@@ -261,16 +281,39 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .slide-controls-bottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;z-index:2;}
 .slide-assignment-select{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:0.85rem;}
 /* 窄螢幕（手機）用固定字級疊層位置，避免投影用的放大字級在小螢幕上互相重疊。 */
-@media (max-width:800px){
-  .slide-body{flex-direction:column;}
+@media (max-width:800px) and (min-height:521px){
+  /* 手機直拿（橫放的矮螢幕走下面另一組規則）：上面留給字級按鈕和關閉鍵，下面留兩排（作品資訊＋控制列），中間才是圖片和雷達圖，
+     這幾塊各佔各的位置，不會再疊在一起。 */
+  .slide-body{flex-direction:column;top:56px;bottom:112px;}
   .slide-stage{flex:1.3;}
   .slide-radar{flex:1;min-width:0;max-height:34vh;}
   .slide-font-controls{left:8px;top:8px;bottom:auto;transform:none;flex-direction:row;}
   .slide-font-controls .btn{width:38px;padding:6px 0;}
-  .slide-meta-overlay{right:8px;bottom:64px;}
-  .slide-meta{font-size:1.05rem;gap:6px;}
-  .slide-pos{font-size:0.8rem;}
-  .slide-controls-bottom{bottom:8px;}
+  .slide-meta-overlay{left:10px;right:10px;bottom:58px;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;}
+  .slide-meta{font-size:1.05rem;gap:6px;flex-wrap:nowrap;justify-content:flex-start;min-width:0;}
+  .slide-pos{font-size:0.8rem;white-space:nowrap;flex:none;}
+  .slide-controls-bottom{left:10px;right:10px;bottom:8px;transform:none;justify-content:center;gap:8px;}
+  .slide-controls-bottom .btn{flex:none;white-space:nowrap;padding:9px 12px;font-size:0.85rem;}
+  .slide-assignment-select{flex:1 1 0;min-width:0;max-width:150px;}
+}
+/* 手機橫放：螢幕很矮，底下留一條放字級按鈕、作品資訊和控制列，圖片和雷達圖用上面剩下的空間 */
+@media (orientation:landscape) and (max-height:520px){
+  .slide-body{top:8px;bottom:58px;}
+  .slide-meta{font-size:1.05rem;gap:6px;flex-wrap:nowrap;}
+  .slide-pos{font-size:0.8rem;white-space:nowrap;}
+  .slide-controls-bottom .btn{flex:none;white-space:nowrap;padding:8px 12px;font-size:0.85rem;}
+  .slide-font-controls{bottom:10px;}
+  .slide-meta-overlay{bottom:12px;right:12px;flex-direction:row;align-items:center;gap:10px;}
+  /* 底下一條由左到右排：字級按鈕｜控制列｜作品資訊，各佔各的，不再疊在一起 */
+  .slide-controls-bottom{bottom:10px;left:170px;transform:none;}
+  .slide-radar{flex:1.2;min-width:300px;max-width:420px;}
+  .slide-close{top:6px;right:6px;}
+}
+/* 更窄的橫放（例如 iPhone SE）放不下，就先藏起「作業篩選」和作業標籤，播放／上下張優先 */
+@media (orientation:landscape) and (max-height:520px) and (max-width:760px){
+  .slide-assignment-select{display:none;}
+  .slide-meta .gallery-assignment-chip{display:none;}
+  .slide-radar{min-width:240px;}
 }
 
 .equip-current{text-align:center;}
@@ -376,7 +419,7 @@ var teacherAssignmentFilter = '';
 // 教師專區改成分頁：功能都在最上面的選單切換，不用在一長串頁面裡往下滑著找。順序依上課流程排列。
 var TEACHER_TABS = [
   { id:'attendance', label:'點名' },
-  { id:'equipment',  label:'器材借用' },
+  { id:'equipment',  label:'器材輪借' },
   { id:'return',     label:'器材歸還' },
   { id:'grades',     label:'評分總表' },
   { id:'progress',   label:'評分進度' },
@@ -814,7 +857,7 @@ function resizeImageFile(file){
 
 function statTile(n, label){ return '<div class="stat"><span class="stat-num">'+n+'</span><span class="stat-label">'+escapeHtml(label)+'</span></div>'; }
 
-// ---------- 班級名單登入：名單就是老師在「器材借用」設好的分組名單（座號 + 姓名）----------
+// ---------- 班級名單登入：名單就是老師在「器材輪借」設好的分組名單（座號 + 姓名）----------
 var rosterFailed = false; // 名單載入失敗（例如沒網路）時，退回讓學生自己打姓名，不能卡死在登入畫面
 var loginStep = null;     // 輸入完座號、確認姓名之後的密碼步驟：{ rawSeat, seat, name, mode:'login'|'register', error }
 function rosterMembers(){
@@ -852,13 +895,13 @@ function loginAsTeacherTest(){
     setTeacherAuthPasscode(pass); // 之後學生端的請求會自動帶著密語，伺服器才放行 99 號
     setMySeat(TEST_SEAT); setMyName(TEST_NAME); setToken('teacher-test');
     loginStep = null; identityEditing = false;
-    setToast('success', '已用 99 號教師測試帳號登入（不參與器材借用，作品和評分不會被同學看到）。');
+    setToast('success', '已用 99 號教師測試帳號登入（不參與器材輪借，作品和評分不會被同學看到）。');
     goTo(getRole());
   }).catch(function(e){ alert('連線失敗：'+e.message); });
 }
 function rosterPreviewHtml(seatInput){
   if(!String(seatInput||'').trim()) return '';
-  if(isTestSeat(seatInput)) return '<strong>教師測試帳號</strong>（需要教師密語，不參與器材借用）';
+  if(isTestSeat(seatInput)) return '<strong>教師測試帳號</strong>（需要教師密語，不參與器材輪借）';
   var m = rosterLookup(seatInput);
   if(!m) return '<span style="color:var(--warn)">名單上找不到這個座號，請確認有沒有輸入錯誤。</span>';
   var nm = String(m.name||'').trim();
@@ -1116,8 +1159,6 @@ function screenSubmit(){
             previewHtml +
           '</div>' +
         '</div>' +
-        '<div class="or-sep">或者</div>' +
-        '<label class="field"><span>貼上圖片網址（選填，已經有連結的話可以用這個）</span><input id="f_link" placeholder="https://..."></label>' +
         '<div class="cta-row">' +
           '<button type="button" class="btn btn-accent" id="cancelSubmitForm" '+(loading?'disabled':'')+'>取消</button>' +
           '<button type="submit" class="btn btn-primary" '+(loading?'disabled':'')+'>'+(loading?'送出中...':'送出作品')+'</button>' +
@@ -1286,7 +1327,10 @@ function radarChartSvg(criteria, perCrit, size, fontScale){
     var anchor = Math.abs(cosA)<0.3 ? 'middle' : (cosA>0?'start':'end');
     return '<text x="'+lx+'" y="'+ly+'" fill="#fff" font-size="'+(size*0.05*fontScale)+'" text-anchor="'+anchor+'" dominant-baseline="middle">'+escapeHtml(c.label)+'</text>';
   }).join('');
-  return '<svg viewBox="0 0 '+size+' '+size+'" width="100%" height="100%">' +
+  // 左右兩側的題目文字（例如「曝光平衡」）會伸出圓形範圍外，畫布左右要多留邊，不然窄的版面
+  // （手機橫放、雷達圖區塊很窄）會把字切掉；留多少跟字級放大倍數成正比。
+  var margin = Math.round(46 + 22*fontScale);
+  return '<svg viewBox="'+(-margin)+' 0 '+(size+2*margin)+' '+size+'" width="100%" height="100%">' +
     rings + axes +
     '<polygon points="'+dataPts+'" fill="rgba(127,194,207,0.35)" stroke="#7FC2CF" stroke-width="'+(2.5*fontScale)+'"/>' +
     dots + labels +
@@ -1925,7 +1969,7 @@ function equipmentReturnChecklistHtml(eq, group){
 function teacherEquipmentOverviewHtml(eq){
   if(!eq) return '<div class="card"><p class="hint">載入中...</p></div>';
   if(!eq.groups || !eq.groups.length){
-    return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材借用管理」新增分組名單。</p></div>';
+    return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材輪借管理」新增分組名單。</p></div>';
   }
   return eq.groups.map(function(g){
     var state = equipGroupState(eq, g);
@@ -2038,7 +2082,7 @@ function equipAttendanceHtml(eq){
     return '<div class="card"><p class="hint">載入中...</p></div>';
   }
   if(!eq.groups || !eq.groups.length){
-    return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材借用管理」新增分組名單。</p></div>';
+    return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材輪借管理」新增分組名單。</p></div>';
   }
   var groupsHtml = eq.groups.map(function(g){
     var members = sortedAttendanceMembers(g);
@@ -2054,7 +2098,7 @@ function equipAttendanceHtml(eq){
   }).join('');
   return (
     '<div class="card">' +
-      '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材借用的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。開始／暫停計時的按鈕放在最上面，隨時都點得到。</p>' +
+      '<p class="hint">勾選今天有出席的人；缺席的人不會出現在器材輪借的轉圈名單裡。如果他晚一點到了，回來這裡把他改勾「有來」再存一次，就會立刻重新排進輪值順序。開始／暫停計時的按鈕放在最上面，隨時都點得到。</p>' +
       groupsHtml +
       '<button type="button" class="btn btn-primary" id="equipSaveAttendance" style="margin-top:10px;width:100%">儲存點名結果</button>' +
     '</div>'
@@ -2124,7 +2168,7 @@ function handleEquipStartPauseToggle(){
 }
 function equipmentAdminHtml(){
   if(!equipmentData){
-    return '<div class="card config-card"><h2 class="screen-title" style="font-size:1rem">器材借用管理</h2><p class="hint">載入中...</p></div>';
+    return '<div class="card config-card"><h2 class="screen-title" style="font-size:1rem">器材輪借管理</h2><p class="hint">載入中...</p></div>';
   }
   var eq = equipmentData;
   var groupsText = eq.groups.map(function(g){
@@ -2152,7 +2196,7 @@ function equipmentAdminHtml(){
   }).join('');
   return (
     '<div class="card config-card">' +
-      '<h2 class="screen-title" style="font-size:1rem">器材借用管理</h2>' +
+      '<h2 class="screen-title" style="font-size:1rem">器材輪借管理</h2>' +
       '<div class="form">' +
         '<label class="field"><span>分組名單（每組一段：第一行是組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="equip_groups" style="min-height:140px">'+escapeHtml(groupsText)+'</textarea></label>' +
         '<button type="button" class="btn btn-primary" id="equipSaveGroups">儲存分組名單</button>' +
@@ -2317,7 +2361,7 @@ function reportsExportSectionHtml(tv, cfg){
   return (
     '<div class="card">' +
       '<p class="hint">目前跨所有作業合計有 <strong style="color:'+(shortfallCount?'var(--low)':'var(--good)')+'">'+shortfallCount+'</strong> 筆「評分件數未達 '+required+' 件」的記錄。</p>' +
-      '<p class="hint">按下面按鈕，會把網頁上全部的報表都依座號排序整理好，直接寫進你 Google 試算表裡的 6 個分頁——評分未達標名單、作業繳交狀況、評分總表、評分進度、器材借用報表、器材放棄紀錄。方便你在試算表那邊統一總覽、算成績，每次按都會把這 6 個分頁整個更新成最新資料，不是累加。</p>' +
+      '<p class="hint">按下面按鈕，會把網頁上全部的報表都依座號排序整理好，直接寫進你 Google 試算表裡的 6 個分頁——評分未達標名單、作業繳交狀況、評分總表、評分進度、器材輪借報表、器材放棄紀錄。方便你在試算表那邊統一總覽、算成績，每次按都會把這 6 個分頁整個更新成最新資料，不是累加。</p>' +
       '<button type="button" class="btn btn-primary" id="exportReportsToSheet" style="width:100%" '+(loading?'disabled':'')+'>'+(loading?'處理中...':'更新試算表報表')+'</button>' +
     '</div>'
   );
@@ -2536,7 +2580,7 @@ function screenTeacher(){
   var dangerZoneHtml =
     '<details class="card settings-fold" style="border-color:var(--low)">' +
       '<summary style="color:var(--low)" id="section-danger">危險區：一鍵還原資料</summary>' +
-      '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材借用目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
+      '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材輪借目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
       '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
       '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
     '</details>';
@@ -2655,7 +2699,7 @@ function render(){
   if(role!=='teacher' || teacherTab!=='gallery') leaveTeacherGalleryMode();
   var toast = popToast();
   var html =
-    '<div class="shell">' +
+    '<div class="shell'+(role==='teacher' ? ' shell-teacher' : '')+'">' +
       navHtml(role) +
       (toast ? '<div class="toast toast-'+escapeAttr(toast.kind)+'">'+escapeHtml(toast.text)+'</div>' : '') +
       '<main class="content" id="mainSlot">' + screenHtml(role) + '</main>' +
@@ -2675,7 +2719,11 @@ function render(){
 function centerActiveTeacherTab(){
   var nav = document.querySelector('.tabs-scroll');
   var active = nav && nav.querySelector('.navbtn.active');
-  if(active) nav.scrollLeft = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2;
+  if(active){
+    // 用實際座標算（不能用 offsetLeft：選單不是定位的容器，橫放時它本身已經離左邊很遠，會算偏）
+    var navLeft = nav.getBoundingClientRect().left, aRect = active.getBoundingClientRect();
+    nav.scrollLeft = nav.scrollLeft + (aRect.left - navLeft) - (nav.clientWidth - aRect.width) / 2;
+  }
 }
 
 // ---------- 資料載入 ----------
@@ -2865,12 +2913,10 @@ function pollForSubmission(id, attempt){
 function handleSubmitWork(form){
   var assignment = form.querySelector('#f_assignment').value;
   var title = form.querySelector('#f_title').value.trim();
-  var link = form.querySelector('#f_link').value.trim();
   if(!hasIdentity()) return;
   if(!assignment){ alert('請選擇這是哪一份作業'); return; }
-  if(!pendingImage && !link){ alert('請上傳一張圖片，或貼上圖片網址。'); return; }
-  if(link && !safeUrl(link)){ alert('請貼上以 http:// 或 https:// 開頭的網址連結'); return; }
-  var imageHash = pendingImage ? pendingImage.hash : 'u:'+hashString(link);
+  if(!pendingImage){ alert('請先選一張要繳交的圖片。'); return; }
+  var imageHash = pendingImage.hash;
   var sameAssignmentSubs = (mySubs||[]).filter(function(s){ return normAssignment(s.assignment)===normAssignment(assignment); });
   if(sameAssignmentSubs.some(function(s){ return s.imageHash && s.imageHash===imageHash; })){
     alert('這件作品你已經在這份作業交過了（內容一模一樣），不用重複交。如果想換一張，請先刪掉舊的那件。');
@@ -2879,52 +2925,35 @@ function handleSubmitWork(form){
   if(sameAssignmentSubs.length && !confirm('你在這份作業已經交過作品了。再交一件的話，同學評分時每個人只會評到你這份作業的其中一件，確定還要再交嗎？')) return;
   var payload = { id: uid('s_'), studentName:getMyName(), studentSeat:getMySeat(), studentNorm:identityNorm(), title:title, assignment:assignment, createdAt:Date.now(), deviceId:getDeviceId(), imageHash:imageHash };
   loading = true; submittingWork = true; submitCancelled = false; render();
-  if(pendingImage){
-    // 圖片資料塞不進網址，用隱藏表單送出、讀不到回應，
-    // 送出後改用 apiGet 輪詢確認有沒有存成功、順便拿到伺服器配的作品編號。
-    payload.imageBase64 = pendingImage.base64;
-    payload.imageMime = pendingImage.mime;
-    payload.token = getToken(); // 隱藏表單不是走 apiGet，要自己帶登入 token
-    if(teacherAuthPasscode()) payload.teacherPass = teacherAuthPasscode();
-    pendingImage = null;
-    postFormNoRead('addSubmission', payload);
-    pollForSubmission(payload.id, 0).then(function(sub){
-      loading = false; submittingWork = false;
-      if(submitCancelled) return;
-      submitTargetAssignment = null;
-      if(sub){
-        setToast('success', '已送出！同學評分時不會看到你的名字。');
-        loadMySubs();
-        return;
-      }
-      // 沒等到這一件：可能是還在處理，也可能是伺服器判斷「內容一模一樣、已經交過了」而沒有新增，查一下才不會講錯。
-      return apiGet('getMySubmissions', { studentNorm: identityNorm() }).then(function(res){
-        var dup = (res.submissions||[]).some(function(s){ return s.imageHash===payload.imageHash && normAssignment(s.assignment)===normAssignment(assignment); });
-        setToast(dup ? 'info' : 'success', dup ? '這件作品你之前已經交過了（內容一模一樣），沒有重複新增。' : '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到。');
-        loadMySubs();
-      });
-    }).catch(function(e){
-      loading = false; submittingWork = false;
-      if(submitCancelled) return;
-      setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
-      render();
-    });
-  } else {
-    payload.driveLink = link;
-    apiGet('addSubmission', payload).then(function(res){
-      loading = false; submittingWork = false;
-      if(submitCancelled) return;
-      submitTargetAssignment = null;
-      if(res && res.duplicate) setToast('info', '這件作品你之前已經交過了（內容一模一樣），沒有重複新增。');
-      else setToast('success', '已送出！同學評分時不會看到你的名字。');
+  // 圖片資料塞不進網址，用隱藏表單送出、讀不到回應，
+  // 送出後改用 apiGet 輪詢確認有沒有存成功、順便拿到伺服器配的作品編號。
+  payload.imageBase64 = pendingImage.base64;
+  payload.imageMime = pendingImage.mime;
+  payload.token = getToken(); // 隱藏表單不是走 apiGet，要自己帶登入 token
+  if(teacherAuthPasscode()) payload.teacherPass = teacherAuthPasscode();
+  pendingImage = null;
+  postFormNoRead('addSubmission', payload);
+  pollForSubmission(payload.id, 0).then(function(sub){
+    loading = false; submittingWork = false;
+    if(submitCancelled) return;
+    submitTargetAssignment = null;
+    if(sub){
+      setToast('success', '已送出！同學評分時不會看到你的名字。');
       loadMySubs();
-    }).catch(function(e){
-      loading = false; submittingWork = false;
-      if(submitCancelled) return;
-      setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
-      render();
+      return;
+    }
+    // 沒等到這一件：可能是還在處理，也可能是伺服器判斷「內容一模一樣、已經交過了」而沒有新增，查一下才不會講錯。
+    return apiGet('getMySubmissions', { studentNorm: identityNorm() }).then(function(res){
+      var dup = (res.submissions||[]).some(function(s){ return s.imageHash===payload.imageHash && normAssignment(s.assignment)===normAssignment(assignment); });
+      setToast(dup ? 'info' : 'success', dup ? '這件作品你之前已經交過了（內容一模一樣），沒有重複新增。' : '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到。');
+      loadMySubs();
     });
-  }
+  }).catch(function(e){
+    loading = false; submittingWork = false;
+    if(submitCancelled) return;
+    setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
+    render();
+  });
 }
 function handleSubmitScore(form){
   if(!reviewView || reviewView.done) return;
@@ -3017,7 +3046,7 @@ function handleExportReportsToSheet(){
       if(btn){ btn.disabled = false; btn.textContent = '更新試算表報表'; }
       return;
     }
-    setToast('success', '已更新試算表 6 個分頁：評分未達標名單 '+res.shortfallCount+' 筆、作業繳交狀況 '+res.rosterCount+' 人、評分總表 '+res.gradeCount+' 件、評分進度 '+res.progressCount+' 筆、器材借用報表 '+res.equipCount+' 組、器材放棄紀錄 '+res.waiverCount+' 筆。');
+    setToast('success', '已更新試算表 6 個分頁：評分未達標名單 '+res.shortfallCount+' 筆、作業繳交狀況 '+res.rosterCount+' 人、評分總表 '+res.gradeCount+' 件、評分進度 '+res.progressCount+' 筆、器材輪借報表 '+res.equipCount+' 組、器材放棄紀錄 '+res.waiverCount+' 筆。');
     render();
   }).catch(function(e){
     if(btn){ btn.disabled = false; btn.textContent = '更新試算表報表'; }
