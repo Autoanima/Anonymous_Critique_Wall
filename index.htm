@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>匿名評圖牆</title>
 <link rel="icon" href="icon_192.png" type="image/png">
+<link rel="preconnect" href="https://script.google.com" crossorigin>
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="apple-touch-icon" href="icon_192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
@@ -299,6 +301,7 @@ var apiUrl = getApiUrl();
 var homeStats = null;
 var homeDescAssignment = null; // 首頁作業要求說明目前選的是哪一份作業，null 就預設選第一份
 var mySubs = null;
+var mySubsFor = null; // mySubs 是哪個身分的清單，換人之後不能拿別人的清單來先顯示
 var reviewView = null;
 var myReviewProgress = null; // { assignments, required, progress:{作業名稱:已評件數} }，選作業畫面用來提示還沒評完的作業
 var teacherView = null;
@@ -514,6 +517,112 @@ function swrLoad(name){
 }
 function swrSave(name, data){
   try{ localStorage.setItem(swrKey(name), JSON.stringify(data)); }catch(e){}
+}
+
+// ---------- 載入優先順序 + 背景悄悄預載 ----------
+// 「交作品」和「評分」是最重要的功能，一律最優先：
+// 1. 一打開網頁，先載入交作品需要的東西（作業清單、自己交過的作品），
+//    器材進度條、作品牆資料、圖片預載這些「錦上添花」的東西全部排在後面。
+// 2. 學生人在交作品頁或評分頁、而且它們正在等回應（載入中、上傳中、送出評分中）的時候，
+//    所有背景請求（預載、器材輪詢、作品牆預抓）一律暫停或往後延，不跟它們搶頻寬。
+var criticalState = { home:false, subs:false, fired:false, queue:[] };
+function isPriorityBusy(){
+  if(submittingWork) return true;
+  var role = getRole();
+  if(role==='review') return (!!reviewAssignment && reviewView===null) || loading;
+  if(role==='submit') return mySubs===null || loading;
+  return false;
+}
+function runBackground(fn, tries){
+  tries = tries || 0;
+  if(isPriorityBusy() && tries < 10){ setTimeout(function(){ runBackground(fn, tries+1); }, 800); return; }
+  try{ fn(); }catch(e){}
+}
+function flushAfterCritical(){
+  if(criticalState.fired) return;
+  criticalState.fired = true;
+  var q = criticalState.queue; criticalState.queue = [];
+  q.forEach(function(fn){ runBackground(fn); });
+  scheduleBackgroundPreload();
+}
+function markCritical(k){ criticalState[k] = true; if(criticalState.home && criticalState.subs) flushAfterCritical(); }
+function afterCritical(fn){ if(criticalState.fired) fn(); else criticalState.queue.push(fn); }
+
+var GRID_THUMB_SIZE = 400;
+var PRELOAD_THUMB_BUDGET = 90; // 縮圖預載整個使用期間最多幾張，避免吃光手機記憶體／流量
+var preloadedUrls = {};
+var preloadThumbCount = 0;
+var preloadScheduled = false;
+var lastGalleryPrefetch = 0;
+// ownTask=true：這張圖就是「目前這個優先功能自己」要用的（例如評分頁的下一件），不受「優先功能忙碌中不預載」限制。
+function canPreload(ownTask){
+  if(document.hidden || submittingWork) return false;
+  if(!ownTask){
+    var role = getRole();
+    if(!criticalState.fired || role==='submit' || role==='review' || isPriorityBusy()) return false;
+  }
+  var c = navigator.connection;
+  if(c && (c.saveData || /(^|-)2g$/.test(c.effectiveType||''))) return false; // 省流量模式、很慢的網路就不偷載
+  return true;
+}
+function preloadImages(urls, isThumb, ownTask){
+  if(!canPreload(ownTask)) return;
+  urls.forEach(function(u){
+    if(!u || preloadedUrls[u]) return;
+    if(isThumb){ if(preloadThumbCount >= PRELOAD_THUMB_BUDGET) return; preloadThumbCount++; }
+    preloadedUrls[u] = 1;
+    var img = new Image(); img.decoding = 'async'; img.src = u; // 不留參照，圖進瀏覽器快取後就能被回收，不佔記憶體
+  });
+}
+function whenIdle(fn){
+  if(window.requestIdleCallback) window.requestIdleCallback(fn, { timeout:3000 });
+  else setTimeout(fn, 500);
+}
+function gridThumbUrl(r){
+  var e = toEmbed(r.driveLink);
+  return (e && e.kind==='image') ? driveThumbSrc(e.src, GRID_THUMB_SIZE) : null;
+}
+function scheduleBackgroundPreload(){
+  if(preloadScheduled || !canPreload()) return;
+  preloadScheduled = true;
+  whenIdle(function(){
+    preloadScheduled = false;
+    try{ runBackgroundPreload(); }catch(e){}
+  });
+}
+function runBackgroundPreload(){
+  if(!canPreload(false)) return;
+  var role = getRole();
+  if(slideshowIndex != null && galleryData){
+    // 展示播放：把接下來兩張的大圖先載好，換張的時候不會空白等待
+    var rows = sortedGalleryRows();
+    if(rows.length > 1){
+      var urls = [];
+      [1,2].forEach(function(k){
+        var r = rows[(((slideshowIndex+k) % rows.length) + rows.length) % rows.length];
+        var e = toEmbed(r.driveLink);
+        if(e && e.kind==='image') urls.push(e.src);
+      });
+      preloadImages(urls, false);
+    }
+    return;
+  }
+  if(role==='gallery' && galleryData && galleryViewMode==='grid'){
+    // 作品牆：把「載入更多」按下去會出現的下一批縮圖先載好
+    var all = sortedGalleryRows();
+    var from = Math.min(galleryVisibleCount, all.length);
+    preloadImages(all.slice(from, from+GALLERY_PAGE_SIZE).map(gridThumbUrl), true);
+    return;
+  }
+  if(role==='home' && apiUrl && Date.now()-lastGalleryPrefetch > 60000){
+    // 人在首頁的時候，悄悄把作品牆資料和最上面幾張縮圖先抓好，點進作品牆就是秒開
+    lastGalleryPrefetch = Date.now();
+    apiGet('gallery').then(function(res){
+      galleryData = res;
+      swrSave('gallery2', res);
+      preloadImages(sortedGalleryRows().slice(0, 8).map(gridThumbUrl), true);
+    }).catch(function(){});
+  }
 }
 
 // ---------- 圖片壓縮（避免整張原始照片直接傳給 Apps Script）----------
@@ -955,7 +1064,7 @@ function galleryMetaHtml(r, scoreVal){
 function galleryImageHtml(r, grid){
   var embed = toEmbed(r.driveLink);
   if(embed && embed.kind==='image'){
-    var src = grid ? driveThumbSrc(embed.src, 400) : embed.src;
+    var src = grid ? driveThumbSrc(embed.src, GRID_THUMB_SIZE) : embed.src;
     return '<img src="'+escapeAttr(src)+'" loading="lazy" alt="">';
   }
   if(embed && embed.kind==='drive') return '<iframe src="'+escapeAttr(embed.src)+'" loading="lazy"></iframe>';
@@ -1186,7 +1295,7 @@ function ensureEquipmentTicking(){
   }
 }
 function pollEquipment(){
-  if(!apiUrl || document.hidden) return;
+  if(!apiUrl || document.hidden || isPriorityBusy()) return; // 交作品／評分正在等回應的時候，不要再塞別的請求
   apiGet('equipmentGet').then(function(res){
     equipmentData = res.equipment;
     if(slideshowIndex==null) patchEquipmentDisplay();
@@ -2205,6 +2314,7 @@ function render(){
     submitOverlayHtml();
   document.getElementById('app').innerHTML = html;
   attachHandlers();
+  scheduleBackgroundPreload();
 }
 
 // ---------- 資料載入 ----------
@@ -2212,15 +2322,25 @@ function loadHome(){
   if(!apiUrl){ homeStats=null; render(); return; }
   if(!homeStats) homeStats = swrLoad('home');
   render();
-  apiGet('home').then(function(json){ homeStats = json; swrSave('home', json); render(); })
-    .catch(function(e){ setToast('error','無法連上資料庫：'+e.message); render(); });
+  apiGet('home').then(function(json){ homeStats = json; swrSave('home', json); markCritical('home'); render(); })
+    .catch(function(e){ markCritical('home'); setToast('error','無法連上資料庫：'+e.message); render(); });
 }
 function loadMySubs(){
-  if(!hasIdentity() || !apiUrl){ mySubs = []; render(); return; }
-  mySubs = null; render();
-  apiGet('getMySubmissions', { studentNorm: identityNorm() }).then(function(res){
-    mySubs = res.submissions || []; render();
-  }).catch(function(e){ mySubs = []; setToast('error','載入失敗：'+e.message); render(); });
+  if(!hasIdentity() || !apiUrl){ mySubs = []; markCritical('subs'); render(); return; }
+  var norm = identityNorm();
+  if(mySubsFor !== norm) mySubs = null; // 換了身分就不能拿上一個人的清單先顯示
+  render();
+  apiGet('getMySubmissions', { studentNorm: norm }).then(function(res){
+    mySubs = res.submissions || []; mySubsFor = norm; markCritical('subs'); render();
+  }).catch(function(e){ mySubs = mySubs || []; markCritical('subs'); setToast('error','載入失敗：'+e.message); render(); });
+}
+/** 啟動時在背景先把「自己交過的作品」抓好，之後點進「交作品」頁面就不用再等一次來回。 */
+function prefetchMySubs(){
+  if(!hasIdentity() || !apiUrl){ markCritical('subs'); return; }
+  var norm = identityNorm();
+  apiGet('getMySubmissions', { studentNorm: norm }).then(function(res){
+    if(identityNorm() === norm){ mySubs = res.submissions || []; mySubsFor = norm; }
+  }).catch(function(){}).then(function(){ markCritical('subs'); });
 }
 function loadReviewView(){
   if(!hasIdentity() || !apiUrl || !reviewAssignment) { render(); return; }
@@ -2233,7 +2353,7 @@ function loadReviewView(){
 function preloadUpcomingWork(view){
   if(!view || !view.upcoming || !view.upcoming.driveLink) return;
   var embed = toEmbed(view.upcoming.driveLink);
-  if(embed && embed.kind==='image'){ var img = new Image(); img.src = embed.src; }
+  if(embed && embed.kind==='image') preloadImages([embed.src], false, true);
 }
 /** 選作業畫面／評分中都會用到：每份作業各自評了幾件，用來提示還沒評夠的作業。 */
 function loadMyReviewProgress(){
@@ -2331,9 +2451,10 @@ function goTo(role){
   else if(role==='submit') loadMySubs();
   else if(role==='review'){
     if(hasIdentity()){
-      loadMyReviewProgress();
       if(!reviewAssignment && assignmentsList.length===1) reviewAssignment = assignmentsList[0];
-      if(reviewAssignment) loadReviewView(); else render();
+      // 評分最優先：先送出「要評哪一件」的請求，其次才是進度統計
+      if(reviewAssignment){ loadReviewView(); loadMyReviewProgress(); }
+      else { loadMyReviewProgress(); render(); }
     } else render();
   }
   else if(role==='gallery') loadGallery();
@@ -2877,14 +2998,28 @@ function init(){
   if(!apiUrl){ setRole('connect'); render(); return; }
   var role = getRole();
   if(role==='connect') role = 'home';
+  // 載入順序：「交作品」需要的東西（作業清單 + 自己交過的作品）最優先，
+  // 器材進度條、作品牆預載、圖片預載都排在這兩個回來之後（最晚 3 秒就放行，避免其中一個卡住拖累全部）。
+  setTimeout(flushAfterCritical, 3000);
+  // 上次看到的作業清單先拿來用，「交作品」的作業下拉選單一打開就有選項，不用等網路回來。
+  var cachedHome = swrLoad('home');
+  if(cachedHome){
+    if(!homeStats) homeStats = cachedHome;
+    if(!assignmentsList.length && Array.isArray(cachedHome.assignments)) assignmentsList = cachedHome.assignments;
+  }
   goTo(role);
-  if(role!=='equipment' && role!=='teacher') loadEquipment();
   // 系統記得上次停在哪一頁，重新整理常常直接落在「交作品」或「我要評分」，
   // 但作業清單只有 home/gallery/teacherFetch 這幾個 API 才會回傳；
   // 沒先補抓一次的話，這兩頁的作業下拉選單會是空的（看起來像「看不到作業項目」）。
-  if(role!=='home' && role!=='gallery' && role!=='teacher'){
-    apiGet('home').then(function(){ render(); }).catch(function(){});
+  if(role==='home'){
+    // loadHome 自己會抓作業清單
+  } else if(role==='gallery' || role==='teacher'){
+    markCritical('home'); // 這兩頁的主要 API 本身就會帶回作業清單
+  } else {
+    apiGet('home').then(function(){ markCritical('home'); render(); }).catch(function(){ markCritical('home'); });
   }
+  if(role!=='submit') prefetchMySubs(); // 人在交作品頁的話，goTo 已經會抓，不重複
+  if(role!=='equipment' && role!=='teacher') afterCritical(loadEquipment);
 }
 init();
 })();
