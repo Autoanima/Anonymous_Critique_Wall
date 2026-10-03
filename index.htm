@@ -1144,14 +1144,19 @@ function ensureEquipmentTicking(){
     }, 1000);
   }
   if(!equipmentPollTimer){
-    equipmentPollTimer = setInterval(function(){
-      if(!apiUrl) return;
-      apiGet('equipmentGet').then(function(res){
-        equipmentData = res.equipment;
-        if(slideshowIndex==null) patchEquipmentDisplay();
-      }).catch(function(){});
-    }, 6000);
+    // 全班每台裝置都在輪詢同一個後端，間隔太短、或是手機放口袋/切到別的 App 還繼續打，
+    // 都會把後端塞住讓所有人一起變慢；「輪到誰」是用時間在本地算的，這個輪詢只是為了
+    // 抓老師按開始／暫停、分組變動、器材回報這類變化，十幾秒一次綽綽有餘。
+    equipmentPollTimer = setInterval(pollEquipment, 15000);
+    document.addEventListener('visibilitychange', function(){ if(!document.hidden) pollEquipment(); });
   }
+}
+function pollEquipment(){
+  if(!apiUrl || document.hidden) return;
+  apiGet('equipmentGet').then(function(res){
+    equipmentData = res.equipment;
+    if(slideshowIndex==null) patchEquipmentDisplay();
+  }).catch(function(){});
 }
 /** 只更新跟器材輪值有關的畫面片段，不動到其他地方的 DOM（見上面註解）。 */
 function patchEquipmentDisplay(){
@@ -1166,7 +1171,7 @@ function patchEquipmentDisplay(){
   var teacherSlot = document.getElementById('teacherEquipOverviewSlot');
   if(teacherSlot) teacherSlot.innerHTML = teacherEquipmentOverviewHtml(equipmentData);
   // 這塊裡面的「確認」checkbox是老師勾好、按確認才送出的暫存操作，
-  // 沒有 isEditingFormField() 保護的話，每 6 秒背景輪詢就會整段換新，
+  // 沒有 isEditingFormField() 保護的話，每次背景輪詢都會整段換新，
   // 把老師還沒按確認的勾選狀態洗掉，所以要跟表單輸入框一樣受保護。
   var teacherReturnSlot = document.getElementById('teacherEquipReturnSlot');
   if(teacherReturnSlot && !isEditingFormField()) teacherReturnSlot.innerHTML = teacherEquipmentReturnReportHtml(equipmentData);
@@ -1436,7 +1441,7 @@ function equipWaiveButtonHtml(group, state){
  * 任何看得到這頁的人都能操作，不需要教師密語，是跟評分/交作品一樣的課堂信任機制。
  */
 /**
- * 勾選只是本地暫存（equipCheckboxDraft），不會馬上打 API——避免每6秒一次的
+ * 勾選只是本地暫存（equipCheckboxDraft），不會馬上打 API——避免定時的
  * 背景輪詢／整頁重繪跟「點一下就送出」的網路延遲互相干擾，看起來像一直在跳動。
  * 要等按「送出」才真的把這批狀態存到伺服器，同時記下是誰按的（要對這次回報負責）。
  * 已經被老師確認過的項目會鎖住不能再改，要改的話請老師先在他那邊處理。
