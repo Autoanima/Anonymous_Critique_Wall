@@ -61,6 +61,13 @@ button,input,textarea{font-family:inherit;}
 .navbtn{flex:1;padding:10px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);font-size:0.85rem;font-weight:500;cursor:pointer;}
 .navbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;}
 .navbtn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+/* 整排按鈕固定一行，不換行：字不換行、窄螢幕就縮小間距和字級 */
+.tabs{flex-wrap:nowrap;}
+.navbtn{white-space:nowrap;}
+@media (max-width:400px){
+  .tabs{gap:5px;}
+  .navbtn{padding:10px 2px;font-size:0.8rem;}
+}
 .tabs-scroll{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
 .tabs-scroll::-webkit-scrollbar{display:none;}
 .tabs-scroll .navbtn{flex:none;white-space:nowrap;padding:10px 16px;}
@@ -742,8 +749,31 @@ function rosterLookup(seatInput){
   for(var i=0;i<ms.length;i++) if(normSeat(ms[i].seat)===want) return ms[i];
   return null;
 }
+// 座號 99 保留給老師測試用：能用全部學生端功能，但不屬於任何分組、不借還器材，也不會被同學看到或算進分數。
+// 要輸入教師密語才能用（伺服器那邊也會擋，不是只有這裡擋）。
+var TEST_SEAT = '99';
+var TEST_NAME = '教師測試';
+function isTestSeat(seat){ return normSeat(seat)===TEST_SEAT; }
+function loginAsTeacherTest(){
+  var pass = teacherAuthPasscode();
+  if(!pass){
+    var input = prompt('99 號是老師的測試帳號，請輸入教師密語：');
+    if(input===null) return;
+    pass = input;
+  }
+  apiGet('verifyTeacher', { passcode: pass }).then(function(res){
+    if(res && res.error==='unknown_action'){ alert('後端 Code.gs 還沒更新到支援測試帳號的版本，請先重新部署。'); return; }
+    if(!res.ok){ clearTeacherAuth(); alert('教師密語不對。'); return; }
+    setTeacherAuthPasscode(pass); // 之後學生端的請求會自動帶著密語，伺服器才放行 99 號
+    setMySeat(TEST_SEAT); setMyName(TEST_NAME); setToken('teacher-test');
+    loginStep = null; identityEditing = false;
+    setToast('success', '已用 99 號教師測試帳號登入（不參與器材借用，作品和評分不會被同學看到）。');
+    goTo(getRole());
+  }).catch(function(e){ alert('連線失敗：'+e.message); });
+}
 function rosterPreviewHtml(seatInput){
   if(!String(seatInput||'').trim()) return '';
+  if(isTestSeat(seatInput)) return '<strong>教師測試帳號</strong>（需要教師密語，不參與器材借用）';
   var m = rosterLookup(seatInput);
   if(!m) return '<span style="color:var(--warn)">名單上找不到這個座號，請確認有沒有輸入錯誤。</span>';
   var nm = String(m.name||'').trim();
@@ -1046,14 +1076,14 @@ function myProgressFor(a){
 }
 function screenReview(){
   if(!hasIdentity()){
-    return '<h1 class="screen-title">我要評分</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能開始評分。</p>';
+    return '<h1 class="screen-title">評分</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，才能開始評分。</p>';
   }
   if(!reviewAssignment){
     if(!assignmentsList.length){
-      return '<h1 class="screen-title">我要評分</h1><p class="hint">載入中...</p>';
+      return '<h1 class="screen-title">評分</h1><p class="hint">載入中...</p>';
     }
     return (
-      '<h1 class="screen-title">我要評分</h1>' +
+      '<h1 class="screen-title">評分</h1>' +
       reviewQuotaNoticeHtml() +
       '<div class="card assignment-pick">' +
         '<p class="hint">選擇要評哪一份作業：</p>' +
@@ -1070,11 +1100,11 @@ function screenReview(){
   }
   var switchBtn = '<button type="button" class="footer-link" id="switchAssignment" style="margin-bottom:8px;display:block">目前評分：'+escapeHtml(reviewAssignment)+'（點此換一份作業）</button>';
   if(!reviewView){
-    return '<h1 class="screen-title">我要評分</h1>' + switchBtn + reviewQuotaNoticeHtml() + '<p class="hint">載入中...</p>';
+    return '<h1 class="screen-title">評分</h1>' + switchBtn + reviewQuotaNoticeHtml() + '<p class="hint">載入中...</p>';
   }
   if(reviewView.done){
     return (
-      '<h1 class="screen-title">我要評分</h1>' + switchBtn + reviewQuotaNoticeHtml(reviewView.required) +
+      '<h1 class="screen-title">評分</h1>' + switchBtn + reviewQuotaNoticeHtml(reviewView.required) +
       '<div class="card done-card">' +
         '<p class="big-check">已完成 '+reviewView.myDone+' / '+reviewView.required+' 件評分，謝謝你！</p>' +
         (reviewView.leftover>0 ? '<button class="btn btn-accent" id="wantMore">還想再多評幾件</button>' : '<p class="hint">目前沒有其他作品可以評了。</p>') +
@@ -1085,7 +1115,7 @@ function screenReview(){
   var work = reviewView.work;
   var embed = toEmbed(work.driveLink);
   return (
-    '<h1 class="screen-title">我要評分</h1>' + switchBtn + reviewQuotaNoticeHtml(reviewView.required) +
+    '<h1 class="screen-title">評分</h1>' + switchBtn + reviewQuotaNoticeHtml(reviewView.required) +
     '<p class="progress">進度：'+reviewView.myDone+' / '+reviewView.required+'</p>' +
     '<div class="card work-card">' +
       previewFrameHtml(embed) +
@@ -1643,15 +1673,18 @@ function findMyGroup(eq){
 }
 function screenEquipment(){
   if(!equipmentData){
-    return '<h1 class="screen-title">器材借用</h1><p class="hint">載入中...</p>';
+    return '<h1 class="screen-title">借器材</h1><p class="hint">載入中...</p>';
   }
   if(!hasIdentity()){
-    return '<h1 class="screen-title">器材借用</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，系統才能找到你的分組。</p>';
+    return '<h1 class="screen-title">借器材</h1>' + identitySectionHtml() + '<p class="hint">請先在上面設定座號和姓名，系統才能找到你的分組。</p>';
+  }
+  if(isTestSeat(getMySeat())){
+    return '<h1 class="screen-title">借器材</h1><div class="card"><p class="hint">你現在是 99 號教師測試帳號，不屬於任何分組，也不會借還器材。要看各組的借還狀況請回教師專區。</p></div>';
   }
   var eq = equipmentData;
   var group = findMyGroup(eq);
   if(!group){
-    return '<h1 class="screen-title">器材借用</h1><div class="card"><p class="hint">目前還沒有把 '+escapeHtml(getMySeat())+' 號分到任何組別，請跟老師確認分組名單。</p></div>';
+    return '<h1 class="screen-title">借器材</h1><div class="card"><p class="hint">目前還沒有把 '+escapeHtml(getMySeat())+' 號分到任何組別，請跟老師確認分組名單。</p></div>';
   }
   var state = equipGroupState(eq, group);
   var order = state.order;
@@ -1683,7 +1716,7 @@ function screenEquipment(){
       '</div>';
   }
   return (
-    '<h1 class="screen-title">器材借用</h1>' +
+    '<h1 class="screen-title">借器材</h1>' +
     '<p class="hint">'+escapeHtml(group.name)+'　組長：'+escapeHtml(leaderSeat?(leaderSeat+' 號'):'（尚未排定順序）')+'</p>' +
     '<p class="hint">組長要負責確認本組器材是否已經正確的歸還，並且在底下打勾歸還的物件之後送出勾選。</p>' +
     timelineSection +
@@ -2034,7 +2067,7 @@ function equipmentAdminHtml(){
         '<hr class="divider">' +
         '<label class="field"><span>器材清單（每行一項，同款要借幾份就重複列幾行，例如記憶卡要 2 張就寫兩行「記憶卡」）</span><textarea id="equip_items" style="min-height:100px">'+escapeHtml((eq.itemTypes||[]).join('\n'))+'</textarea></label>' +
         '<button type="button" class="btn btn-accent" id="equipSaveItemTypes">儲存器材清單</button>' +
-        '<p class="hint">每組是否歸還的勾選狀態，在學生的「器材借用」頁面裡就能看到、直接勾。</p>' +
+        '<p class="hint">每組是否歸還的勾選狀態，在學生的「借器材」頁面裡就能看到、直接勾。</p>' +
         '<hr class="divider">' +
         '<button type="button" class="btn btn-accent" id="equipBuildOrder" style="width:100%">重新排定所有組別的順序（隨機，會把計時歸零，順便把器材歸還狀態整批重置）</button>' +
         '<button type="button" class="btn btn-accent" id="equipResetReturned" style="width:100%;margin-top:8px">只重設器材歸還狀態（不動計時和順序）</button>' +
@@ -2491,7 +2524,7 @@ function navHtml(role){
         : '') +
     '</header>';
   }
-  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','我要評分')+btn('gallery','作品牆')+btn('equipment','器材借用')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
+  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','評分')+btn('gallery','作品牆')+btn('equipment','借器材')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
 }
 
 function render(){
@@ -3107,6 +3140,7 @@ function attachHandlers(){
       if(!nameInput){
         // 名單模式：只認座號，姓名一律用名單上的，確認過才存。
         if(!seatVal){ alert('請輸入座號'); return; }
+        if(isTestSeat(seatVal)){ loginAsTeacherTest(); return; }
         var member = rosterLookup(seatVal);
         if(!member){ alert('名單上找不到座號 '+seatVal+'，請確認有沒有輸入錯誤；如果沒錯，請跟老師確認名單。'); return; }
         var rosterName = String(member.name||'').trim();
@@ -3129,6 +3163,7 @@ function attachHandlers(){
         return;
       } else {
         var nameVal = nameInput.value.trim();
+        if(isTestSeat(seatVal)){ loginAsTeacherTest(); return; } // 手動輸入姓名的舊流程也一樣，99 一律走教師測試帳號
         if(!seatVal || !nameVal){ alert('座號和姓名都要填喔'); return; }
         setMySeat(seatVal); setMyName(nameVal);
       }
