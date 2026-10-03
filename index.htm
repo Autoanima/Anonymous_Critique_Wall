@@ -1929,6 +1929,10 @@ function reportsExportSectionHtml(tv, cfg){
       '<p class="hint">目前跨所有作業合計有 <strong style="color:'+(shortfallCount?'var(--low)':'var(--good)')+'">'+shortfallCount+'</strong> 筆「評分件數未達 '+required+' 件」的記錄。</p>' +
       '<p class="hint">按下面按鈕，會把網頁上全部的報表都依座號排序整理好，直接寫進你 Google 試算表裡的 6 個分頁——評分未達標名單、作業繳交狀況、評分總表、評分進度、器材借用報表、器材放棄紀錄。方便你在試算表那邊統一總覽、算成績，每次按都會把這 6 個分頁整個更新成最新資料，不是累加。</p>' +
       '<button type="button" class="btn btn-primary" id="exportReportsToSheet" style="width:100%" '+(loading?'disabled':'')+'>'+(loading?'處理中...':'更新試算表報表')+'</button>' +
+    '</div>' +
+    '<div class="card">' +
+      '<p class="hint">已經交過的作品，雲端硬碟裡的圖檔如果還是舊檔名，按下面按鈕會整批改成「座號_姓名_作業名稱_第N個作品.jpg」。只會動本系統自己的上傳資料夾裡的檔案（學生貼的外部連結不會被碰到），改名不影響作品牆顯示，可以重複按，已經改對的會自動略過。</p>' +
+      '<button type="button" class="btn btn-accent" id="renameUploadsBtn" style="width:100%">整理雲端硬碟裡的作品檔名</button>' +
     '</div>'
   );
 }
@@ -2536,6 +2540,24 @@ function handleExportReportsToSheet(){
     alert('更新失敗：'+e.message);
   });
 }
+function handleRenameUploads(){
+  if(!confirm('要把雲端硬碟裡已經交過的作品檔名，整批改成最新的命名格式嗎？（只改檔名，不影響作品牆顯示）')) return;
+  var btn = document.getElementById('renameUploadsBtn');
+  var idleText = '整理雲端硬碟裡的作品檔名';
+  if(btn){ btn.disabled = true; btn.textContent = '整理中，作品多的話要等一兩分鐘...'; }
+  apiGet('renameUploads', { passcode: teacherAuthPasscode() }).then(function(res){
+    if(btn){ btn.disabled = false; btn.textContent = idleText; }
+    if(!res.ok){ alert('整理失敗：'+(res.error||'unknown')); return; }
+    var msg = '已改名 '+res.renamed+' 個、本來就正確 '+res.unchanged+' 個、略過 '+res.skipped+' 個（不是本系統上傳的圖）';
+    if(res.failed) msg += '、失敗 '+res.failed+' 個';
+    msg += res.remaining ? '。還有 '+res.remaining+' 個這次來不及處理，請再按一次。' : '。';
+    setToast(res.failed || res.remaining ? 'info' : 'success', msg);
+    render();
+  }).catch(function(e){
+    if(btn){ btn.disabled = false; btn.textContent = idleText; }
+    alert('整理失敗：'+e.message);
+  });
+}
 function handleResetAllData(){
   var input = document.getElementById('reset_confirm_pass');
   var typed = input ? input.value.trim() : '';
@@ -2756,6 +2778,7 @@ function attachHandlers(){
     }
     if(e.target.closest('#resetAllDataBtn')){ handleResetAllData(); return; }
     if(e.target.closest('#exportReportsToSheet')){ handleExportReportsToSheet(); return; }
+    if(e.target.closest('#renameUploadsBtn')){ handleRenameUploads(); return; }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
     if(e.target.closest('#downloadBundle')){ handleDownloadBundle(); return; }
