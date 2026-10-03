@@ -276,6 +276,10 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .slide-info-line{display:flex;gap:0.5em;align-items:center;justify-content:center;flex-wrap:wrap;}
 .slide-info .gallery-assignment-chip{white-space:normal;line-height:1.3;font-size:0.85em;padding:0.1em 0.8em;max-width:100%;overflow-wrap:anywhere;}
 .slide-info .gallery-score{font-size:1em;padding:0.1em 0.6em;}
+/* 老師才看得到的加分列（教師作品牆播放時）：按一下直接加分，不會觸發換張 */
+.slide-bonus{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;font-size:0.8em;color:rgba(255,255,255,0.85);}
+.slide-bonus .btn{flex:none;min-width:40px;padding:4px 8px;font-size:1em;line-height:1.2;touch-action:manipulation;}
+.slide-bonus-note{font-size:0.8em;color:rgba(255,255,255,0.7);white-space:nowrap;}
 /* 所有資訊、控制項都用絕對定位疊在畫面上，不佔版面空間，讓作品圖片盡量放到最大。 */
 .slide-meta-overlay{position:absolute;right:16px;bottom:16px;z-index:2;pointer-events:none;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:calc(1.3rem * var(--slide-scale));}
@@ -453,7 +457,7 @@ function deriveTeacherGalleryData(){
   return {
     rows: (teacherView.rows||[]).map(function(r){
       return { workCode:r.workCode, studentName:r.studentName, studentSeat:r.studentSeat, title:r.title, assignment:r.assignment,
-               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, count:r.count, unlocked:true };
+               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, baseOverall:r.baseOverall, bonus:r.bonus||0, count:r.count, unlocked:true };
     }),
     criteria: cfg.criteria, assignments: cfg.assignments||[],
     revealMinReviewers: cfg.revealMinReviewers, revealMinReviews: cfg.revealMinReviews, revealProgress: {}
@@ -1482,7 +1486,8 @@ function slideshowHtml(){
           '<div class="slide-radar-chart">'+radarBox+'</div>' +
           '<div class="slide-info">' +
             '<span class="gallery-assignment-chip" style="background:'+aColor+';color:'+aText+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
-            '<div class="slide-info-line">'+galleryMetaHtml(r, scoreVal)+'</div>' +
+            '<div class="slide-info-line">'+galleryMetaHtml(r, scoreVal)+(gallerySort==='overall' ? slideBonusNoteHtml(r) : '')+'</div>' +
+            slideBonusHtml(r) +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -1502,6 +1507,57 @@ function slideshowHtml(){
       '</div>' +
     '</div>'
   );
+}
+/** 老師加分列：只在教師模式的作品牆播放時出現。0＝不加分，1~3＝加幾分，總平均最高 5 分。 */
+function slideBonusHtml(r){
+  if(!teacherGalleryActive) return '';
+  var cur = r.bonus || 0;
+  var btns = [0,1,2,3].map(function(n){
+    return '<button type="button" class="btn '+(cur===n?'btn-primary':'btn-accent')+'" data-bonus="'+n+'" aria-pressed="'+(cur===n)+'">'+(n===0?'無':'＋'+n)+'</button>';
+  }).join('');
+  return '<div class="slide-bonus"><span>老師加分</span>'+btns+'</div>';
+}
+/** 有加分的作品，在分數旁邊註明原本幾分、加了幾分（只有教師模式看得到）。 */
+function slideBonusNoteHtml(r){
+  if(!teacherGalleryActive || !(r.bonus > 0)) return '';
+  if(r.baseOverall == null) return '<span class="slide-bonus-note">還沒有評分，有評分後才計入</span>';
+  return '<span class="slide-bonus-note">（原 '+r.baseOverall.toFixed(2)+' ＋'+r.bonus+(r.baseOverall + r.bonus > 5 ? '，最高 5 分' : '')+'）</span>';
+}
+/**
+ * 老師在播放中直接幫目前這件作品加分。先在畫面上更新（馬上看到新分數），再送到伺服器存起來；
+ * 存失敗就改回原本的分數並提醒。加分會改變總平均的排序，所以更新後要把播放位置跟著這件作品移到新的名次，
+ * 不然下一眼會變成看到別件作品。
+ */
+function applyBonusLocal(workCode, bonus){
+  [galleryData && galleryData.rows, teacherView && teacherView.rows].forEach(function(list){
+    (list||[]).forEach(function(row){
+      if(row.workCode !== workCode) return;
+      row.bonus = bonus;
+      if(row.baseOverall != null) row.overall = bonus > 0 ? Math.min(5, row.baseOverall + bonus) : row.baseOverall;
+    });
+  });
+  var rows = sortedGalleryRows();
+  for(var i = 0; i < rows.length; i++) if(rows[i].workCode === workCode){ slideshowIndex = i; break; }
+  if(slideshowIndex != null) renderSlideshowOnly();
+}
+function handleSlideBonus(n){
+  if(!teacherGalleryActive || slideshowIndex == null) return;
+  var rows = sortedGalleryRows();
+  if(!rows.length) return;
+  var r = rows[((slideshowIndex % rows.length) + rows.length) % rows.length];
+  var prev = r.bonus || 0;
+  if(prev === n) return;
+  var pass = teacherAuthPasscode();
+  if(!pass){ alert('教師密語已失效，請先關閉播放、重新登入教師模式再加分。'); return; }
+  var code = r.workCode;
+  if(slideshowPlaying){ slideshowPlaying = false; stopSlideTimer(); } // 加分時先暫停自動播放，免得按到一半換張
+  applyBonusLocal(code, n);
+  apiGet('teacherSetBonus', { passcode: pass, workCode: code, bonus: n }).then(function(res){
+    if(!res || !res.ok) throw new Error(res && res.error === 'unauthorized' ? '教師密語不對' : '伺服器沒有存成功（請確認 Code.gs 已經重新部署最新版）');
+  }).catch(function(e){
+    applyBonusLocal(code, prev);
+    alert('加分沒有存成功，已改回原本的分數：' + e.message);
+  });
 }
 function slideAssignmentOptions(){
   return '<option value="">全部作業</option>' +
@@ -2500,7 +2556,7 @@ function screenTeacher(){
       '<td title="'+escapeAttr(r.assignment||'')+'">'+escapeHtml(r.assignment ? shortAssignment(r.assignment) : '—')+'</td>' +
       '<td class="title-cell">'+escapeHtml(r.title||'—')+'</td>' +
       cells +
-      '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+'</td>' +
+      '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+(r.bonus>0 && r.overall!=null ? ' <span class="hint" title="老師加分">＋'+r.bonus+'</span>' : '')+'</td>' +
       '<td class="num"'+(underReviewed?' style="color:var(--warn);font-weight:700"':'')+' title="'+(underReviewed?'還差 '+(required-r.count)+' 份評分才滿老師設定的 '+required+' 份':'已收滿老師設定的 '+required+' 份評分')+'">'+r.count+(underReviewed?' ⚠':'')+'</td>' +
       '<td class="mono col-device" style="font-size:0.7rem;color:var(--ink-soft)">'+escapeHtml(r.deviceId||'—')+'</td>' +
     '</tr>';
@@ -3165,12 +3221,12 @@ function handleExportCsv(){
   criteria.forEach(function(c){ csvValueFns['crit:'+c.key] = function(r){ return r.perCrit[c.key]==null?-1:r.perCrit[c.key]; }; });
   rows = sortRows(rows, teacherSortKey, teacherSortDir, csvValueFns, 'studentSeat');
   // 匯出的欄位順序跟畫面上目前的排序、欄位順序保持一致，方便直接對照。
-  var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數','裝置代碼']);
+  var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數','裝置代碼','教師加分']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
     var cells = [i+1, r.studentSeat, r.studentName, r.assignment||'', r.title||''].concat(
       criteria.map(function(c){ var v=r.perCrit[c.key]; return v==null?'':v.toFixed(2); })
-    ).concat([r.overall==null?'':r.overall.toFixed(2), r.count, r.deviceId||'']);
+    ).concat([r.overall==null?'':r.overall.toFixed(2), r.count, r.deviceId||'', r.bonus||'']);
     lines.push(cells.map(csvCell).join(','));
   });
   var csv = '﻿' + lines.join('\r\n');
@@ -3472,6 +3528,8 @@ function attachHandlers(){
       slideshowPlaying = false; enterFullscreen(); render(); return;
     }
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
+    var bonusBtn = e.target.closest('[data-bonus]');
+    if(bonusBtn && slideshowIndex != null){ handleSlideBonus(parseInt(bonusBtn.getAttribute('data-bonus'),10)); return; }
     if(slideshowIndex != null && e.target.closest('.slide-body')){ handleSlideBodyTap(e); return; }
     var fontBtn = e.target.closest('[data-slide-font]');
     if(fontBtn){ handleSlideFontScale(parseInt(fontBtn.getAttribute('data-slide-font'),10)*0.1); return; }
