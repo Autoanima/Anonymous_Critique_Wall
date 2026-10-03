@@ -375,6 +375,10 @@ function getApiUrl(){
     if(fromQuery){
       localStorage.setItem('crit.apiUrl', fromQuery);
       history.replaceState({}, '', location.pathname);
+    } else if(params.has('_r')){
+      // 「強制重新整理」帶來的一次性參數（網址不同，瀏覽器和 CDN 才不會拿舊檔），載入後把它從網址列拿掉
+      params.delete('_r');
+      history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params.toString() : ''));
     }
   }catch(e){}
   return localStorage.getItem('crit.apiUrl') || '';
@@ -2704,8 +2708,8 @@ function render(){
       (toast ? '<div class="toast toast-'+escapeAttr(toast.kind)+'">'+escapeHtml(toast.text)+'</div>' : '') +
       '<main class="content" id="mainSlot">' + screenHtml(role) + '</main>' +
       (role==='teacher'
-        ? '<footer class="footer"><button class="footer-link" data-nav="home">離開教師模式</button></footer>'
-        : '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button></footer>') +
+        ? '<footer class="footer"><button class="footer-link" data-nav="home">離開教師模式</button><button class="footer-link" id="forceReloadBtn">強制重新整理</button></footer>'
+        : '<footer class="footer"><button class="footer-link" data-nav="teacher">教師專區</button><button class="footer-link" data-nav="connect">連接設定</button><button class="footer-link" id="forceReloadBtn">強制重新整理</button></footer>') +
     '</div>' +
     slideshowHtml() +
     lightboxHtml() +
@@ -3154,6 +3158,20 @@ function fallbackCopy(input, done){
   try{ input.removeAttribute('readonly'); input.select(); document.execCommand('copy'); input.setAttribute('readonly',''); done(); }
   catch(e){ alert('複製失敗，請手動選取文字複製。'); }
 }
+/**
+ * 強制重新整理：拿到最新版的網頁。一般的重新整理，瀏覽器和 GitHub Pages 的快取最多會讓人看到 10 分鐘前的舊版；
+ * 這裡換成帶一個一次性參數的網址，瀏覽器和 CDN 就一定會重新去抓最新的網頁檔，載入後參數會自己從網址列消失。
+ * 順便清掉這支裝置上暫存的首頁／作品牆資料（那是「先顯示舊資料」用的），登入、座號姓名、教師登入都不會被清掉。
+ */
+function forceReload(){
+  if(submittingWork){ alert('作品正在上傳中，請等上傳完成再重新整理。'); return; }
+  try{
+    Object.keys(localStorage).forEach(function(k){ if(k.indexOf('crit.swr.')===0) localStorage.removeItem(k); });
+  }catch(e){}
+  var url = new URL(location.href);
+  url.searchParams.set('_r', String(Date.now()));
+  location.replace(url.toString());
+}
 function handleLoginSubmit(){
   if(!loginStep) return;
   var step = loginStep;
@@ -3325,6 +3343,7 @@ function attachHandlers(){
       goTo(getRole());
       return;
     }
+    if(e.target.closest('#forceReloadBtn')){ forceReload(); return; }
     if(e.target.closest('#loginCancel')){ loginStep = null; render(); return; }
     if(e.target.closest('#loginSubmit')){ handleLoginSubmit(); return; }
     if(e.target.closest('#hideQuickIdentity')){
