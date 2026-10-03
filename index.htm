@@ -279,6 +279,10 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 /* 老師才看得到的加分列（教師作品牆播放時）：按一下直接加分，不會觸發換張 */
 .slide-bonus{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;font-size:0.8em;color:rgba(255,255,255,0.85);}
 .slide-bonus .btn{flex:none;min-width:40px;padding:4px 8px;font-size:1em;line-height:1.2;touch-action:manipulation;}
+.returned-chip{background:#b3261e;color:#fff;font-weight:700;padding:1px 8px;border-radius:999px;font-size:0.85em;white-space:nowrap;}
+.slide-bonus .btn.btn-return{background:#b3261e;color:#fff;border-color:#b3261e;}
+.slide-return-reason{font-size:0.8em;color:#ffb4ab;max-width:100%;overflow-wrap:anywhere;}
+.mine-returned{color:var(--warn);font-weight:700;font-size:0.82rem;}
 .slide-bonus-note{font-size:0.8em;color:rgba(255,255,255,0.7);white-space:nowrap;}
 /* 所有資訊、控制項都用絕對定位疊在畫面上，不佔版面空間，讓作品圖片盡量放到最大。 */
 .slide-meta-overlay{position:absolute;right:16px;bottom:16px;z-index:2;pointer-events:none;}
@@ -457,7 +461,7 @@ function deriveTeacherGalleryData(){
   return {
     rows: (teacherView.rows||[]).map(function(r){
       return { workCode:r.workCode, studentName:r.studentName, studentSeat:r.studentSeat, title:r.title, assignment:r.assignment,
-               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, baseOverall:r.baseOverall, bonus:r.bonus||0, count:r.count, unlocked:true };
+               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, baseOverall:r.baseOverall, bonus:r.bonus||0, returned:r.returned||null, count:r.count, unlocked:true };
     }),
     criteria: cfg.criteria, assignments: cfg.assignments||[],
     revealMinReviewers: cfg.revealMinReviewers, revealMinReviews: cfg.revealMinReviews, revealProgress: {}
@@ -1131,8 +1135,10 @@ function checklistHtml(){
       var embed = toEmbed(s.driveLink);
       var thumb = embed && embed.kind==='image' ? '<img class="mine-thumb thumb-zoomable" data-full="'+escapeAttr(embed.src)+'" src="'+escapeAttr(driveThumbSrc(embed.src,100))+'" alt="">' : '<span class="mine-thumb mine-thumb-empty"></span>';
       return '<li class="mine-item mine-item-detail">' + thumb +
-        '<span class="mine-info">'+escapeHtml(s.title||'')+'</span>' +
-        '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>' +
+        (s.returned
+          ? '<span class="mine-info"><span class="mine-returned">老師已退回這件作品</span><br>原因：'+escapeHtml(s.returned.reason||'')+'<br><span class="hint">請重新交一件自己的作品。</span></span>'
+          : '<span class="mine-info">'+escapeHtml(s.title||'')+'</span>' +
+            '<button type="button" class="mine-del" data-del="'+escapeAttr(s.id)+'">刪除</button>') +
       '</li>';
     }).join('');
     return summaryRow + detailRows;
@@ -1358,6 +1364,7 @@ function galleryMetaHtml(r, scoreVal){
   var bits = [];
   if(galleryShowNames && r.studentName) bits.push('<span class="gallery-name">'+escapeHtml(r.studentSeat)+'號 '+escapeHtml(r.studentName)+'</span>');
   if(galleryShowScores) bits.push('<span class="gallery-score">'+(scoreVal==null?'—':scoreVal.toFixed(2))+'</span>');
+  if(teacherGalleryActive && r.returned) bits.push('<span class="returned-chip" title="'+escapeAttr(r.returned.reason||'')+'">已退回</span>');
   return bits.join(' ');
 }
 /** grid=true 時是作品牆格狀縮圖，故意要小張一點；投影/單張顯示（grid 沒帶或 false）就要原本的大尺寸。 */
@@ -1515,30 +1522,74 @@ function slideBonusHtml(r){
   var btns = [0,1,2,3].map(function(n){
     return '<button type="button" class="btn '+(cur===n?'btn-primary':'btn-accent')+'" data-bonus="'+n+'" aria-pressed="'+(cur===n)+'">'+(n===0?'無':'＋'+n)+'</button>';
   }).join('');
-  return '<div class="slide-bonus"><span>老師加分</span>'+btns+'</div>';
+  var ret = r.returned
+    ? '<button type="button" class="btn btn-accent" data-return="undo">撤銷退回</button>'
+    : '<button type="button" class="btn btn-return" data-return="1">退回</button>';
+  return '<div class="slide-bonus"><span>老師加分</span>'+btns+ret+'</div>' +
+    (r.returned ? '<div class="slide-return-reason">退回原因：'+escapeHtml(r.returned.reason||'')+'</div>' : '');
 }
 /** 有加分的作品，在分數旁邊註明原本幾分、加了幾分（只有教師模式看得到）。 */
 function slideBonusNoteHtml(r){
-  if(!teacherGalleryActive || !(r.bonus > 0)) return '';
+  if(!teacherGalleryActive || !(r.bonus > 0 || r.returned)) return '';
   if(r.baseOverall == null) return '<span class="slide-bonus-note">還沒有評分，有評分後才計入</span>';
-  return '<span class="slide-bonus-note">（原 '+r.baseOverall.toFixed(2)+' ＋'+r.bonus+(r.baseOverall + r.bonus > 5 ? '，最高 5 分' : '')+'）</span>';
+  return '<span class="slide-bonus-note">（原 '+r.baseOverall.toFixed(2)+(r.bonus>0 ? ' ＋'+r.bonus : '')+(r.returned ? ' －0.1 退回' : '')+(r.baseOverall + (r.bonus||0) > 5 ? '，最高 5 分' : '')+'）</span>';
 }
 /**
  * 老師在播放中直接幫目前這件作品加分。先在畫面上更新（馬上看到新分數），再送到伺服器存起來；
  * 存失敗就改回原本的分數並提醒。加分會改變總平均的排序，所以更新後要把播放位置跟著這件作品移到新的名次，
  * 不然下一眼會變成看到別件作品。
  */
-function applyBonusLocal(workCode, bonus){
+function overallWithAdjustments(row){
+  if(row.baseOverall == null) return row.overall;
+  var o = row.bonus > 0 ? Math.min(5, row.baseOverall + row.bonus) : row.baseOverall;
+  if(row.returned) o = Math.max(0, Math.round((o - 0.1) * 1e6) / 1e6);
+  return o;
+}
+/** 在畫面上先更新某件作品的加分／退回狀態（教師作品牆和教師總表的資料都同步改），並讓播放位置跟著這件作品走。 */
+function applyWorkLocal(workCode, patch){
   [galleryData && galleryData.rows, teacherView && teacherView.rows].forEach(function(list){
     (list||[]).forEach(function(row){
       if(row.workCode !== workCode) return;
-      row.bonus = bonus;
-      if(row.baseOverall != null) row.overall = bonus > 0 ? Math.min(5, row.baseOverall + bonus) : row.baseOverall;
+      for(var k in patch) row[k] = patch[k];
+      row.overall = overallWithAdjustments(row);
     });
   });
   var rows = sortedGalleryRows();
   for(var i = 0; i < rows.length; i++) if(rows[i].workCode === workCode){ slideshowIndex = i; break; }
   if(slideshowIndex != null) renderSlideshowOnly();
+}
+function applyBonusLocal(workCode, bonus){ applyWorkLocal(workCode, { bonus: bonus }); }
+/**
+ * 退回（或撤銷退回）目前這件作品：退回要輸入原因，總平均扣 0.1 分，原因和時間由伺服器記在試算表「退回紀錄」分頁。
+ */
+function handleSlideReturn(mode){
+  if(!teacherGalleryActive || slideshowIndex == null) return;
+  var rows = sortedGalleryRows();
+  if(!rows.length) return;
+  var r = rows[((slideshowIndex % rows.length) + rows.length) % rows.length];
+  var pass = teacherAuthPasscode();
+  if(!pass){ alert('教師密語已失效，請先關閉播放、重新登入教師模式再操作。'); return; }
+  var undo = mode === 'undo';
+  var prev = r.returned || null;
+  var who = (r.studentSeat ? r.studentSeat+'號 ' : '') + (r.studentName || r.workCode);
+  var reason = '';
+  if(undo){
+    if(!confirm('要撤銷「'+who+'」這件作品的退回嗎？\n扣的 0.1 分會還原，作品也會重新出現在作品牆。')) return;
+  } else {
+    var input = prompt('退回「'+who+'」的作品。\n總平均會扣 0.1 分，原因和時間會記錄在試算表的「退回紀錄」分頁。\n\n請輸入退回原因：', prev ? prev.reason : '上傳的不是自己的作業');
+    if(input === null) return;
+    reason = input.trim();
+    if(!reason){ alert('請輸入退回原因。'); return; }
+  }
+  var code = r.workCode;
+  if(slideshowPlaying){ slideshowPlaying = false; stopSlideTimer(); }
+  applyWorkLocal(code, { returned: undo ? null : { reason: reason, at: Date.now() } });
+  apiGet('teacherReturnWork', { passcode: pass, workCode: code, reason: reason, undo: undo }).then(function(res){
+    if(!res || !res.ok) throw new Error(res && res.error === 'unauthorized' ? '教師密語不對' : (res && res.error === 'reason_required' ? '沒有填原因' : '伺服器沒有存成功（請確認 Code.gs 已經重新部署最新版）'));
+  }).catch(function(e){
+    applyWorkLocal(code, { returned: prev });
+    alert((undo ? '撤銷退回' : '退回')+'沒有存成功，已改回原本的狀態：' + e.message);
+  });
 }
 function handleSlideBonus(n){
   if(!teacherGalleryActive || slideshowIndex == null) return;
@@ -2556,7 +2607,7 @@ function screenTeacher(){
       '<td title="'+escapeAttr(r.assignment||'')+'">'+escapeHtml(r.assignment ? shortAssignment(r.assignment) : '—')+'</td>' +
       '<td class="title-cell">'+escapeHtml(r.title||'—')+'</td>' +
       cells +
-      '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+(r.bonus>0 && r.overall!=null ? ' <span class="hint" title="老師加分">＋'+r.bonus+'</span>' : '')+'</td>' +
+      '<td class="num strong">'+(r.overall==null?'—':r.overall.toFixed(2))+(r.bonus>0 && r.overall!=null ? ' <span class="hint" title="老師加分">＋'+r.bonus+'</span>' : '')+(r.returned ? ' <span class="returned-chip" title="'+escapeAttr('退回原因：'+(r.returned.reason||''))+'">退回 −0.1</span>' : '')+'</td>' +
       '<td class="num"'+(underReviewed?' style="color:var(--warn);font-weight:700"':'')+' title="'+(underReviewed?'還差 '+(required-r.count)+' 份評分才滿老師設定的 '+required+' 份':'已收滿老師設定的 '+required+' 份評分')+'">'+r.count+(underReviewed?' ⚠':'')+'</td>' +
       '<td class="mono col-device" style="font-size:0.7rem;color:var(--ink-soft)">'+escapeHtml(r.deviceId||'—')+'</td>' +
     '</tr>';
@@ -3221,12 +3272,12 @@ function handleExportCsv(){
   criteria.forEach(function(c){ csvValueFns['crit:'+c.key] = function(r){ return r.perCrit[c.key]==null?-1:r.perCrit[c.key]; }; });
   rows = sortRows(rows, teacherSortKey, teacherSortDir, csvValueFns, 'studentSeat');
   // 匯出的欄位順序跟畫面上目前的排序、欄位順序保持一致，方便直接對照。
-  var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數','裝置代碼','教師加分']);
+  var header = ['排名','座號','姓名','作業','作品名稱'].concat(criteria.map(function(c){ return c.label; })).concat(['總平均','份數','裝置代碼','教師加分','退回原因']);
   var lines = [header.map(csvCell).join(',')];
   rows.forEach(function(r,i){
     var cells = [i+1, r.studentSeat, r.studentName, r.assignment||'', r.title||''].concat(
       criteria.map(function(c){ var v=r.perCrit[c.key]; return v==null?'':v.toFixed(2); })
-    ).concat([r.overall==null?'':r.overall.toFixed(2), r.count, r.deviceId||'', r.bonus||'']);
+    ).concat([r.overall==null?'':r.overall.toFixed(2), r.count, r.deviceId||'', r.bonus||'', r.returned ? r.returned.reason : '']);
     lines.push(cells.map(csvCell).join(','));
   });
   var csv = '﻿' + lines.join('\r\n');
@@ -3324,7 +3375,7 @@ function handleDeleteSubmission(id){
   if(!confirm('確定要刪除這件作品嗎？已經收到的評分也會一併刪除，無法復原。')) return;
   apiGet('deleteSubmission', { id: id, studentNorm: identityNorm(), deviceId: getDeviceId() }).then(function(res){
     if(!res.ok){
-      setToast('error', res.error==='wrong_device'
+      setToast('error', res.error==='returned' ? '這件作品已經被老師退回，不能自己刪除，請直接再交一件新的。' : res.error==='wrong_device'
         ? '這件作品不是用這台裝置交的，為了避免誤刪別人的作品，只能用原本交作品的那支手機／電腦刪除；如果真的要刪，請找老師幫忙。'
         : '刪除失敗，請稍後再試。');
       render(); return;
@@ -3528,6 +3579,8 @@ function attachHandlers(){
       slideshowPlaying = false; enterFullscreen(); render(); return;
     }
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
+    var returnBtn = e.target.closest('[data-return]');
+    if(returnBtn && slideshowIndex != null){ handleSlideReturn(returnBtn.getAttribute('data-return')); return; }
     var bonusBtn = e.target.closest('[data-bonus]');
     if(bonusBtn && slideshowIndex != null){ handleSlideBonus(parseInt(bonusBtn.getAttribute('data-bonus'),10)); return; }
     if(slideshowIndex != null && e.target.closest('.slide-body')){ handleSlideBodyTap(e); return; }
