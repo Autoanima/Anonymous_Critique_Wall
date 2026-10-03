@@ -336,11 +336,47 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 /* 老師才看得到的加分列（教師作品牆播放時）：按一下直接加分，不會觸發換張 */
 .slide-bonus{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;font-size:0.8em;color:rgba(255,255,255,0.85);}
 .slide-bonus .btn{flex:none;min-width:40px;padding:4px 8px;font-size:1em;line-height:1.2;touch-action:manipulation;}
+.slide-reviews{position:absolute;top:48px;left:8px;right:8px;max-height:calc(100% - 128px);overflow-y:auto;z-index:4;background:rgba(14,18,17,0.97);border:1px solid var(--line);border-radius:12px;padding:10px 12px;color:#fff;font-size:0.9rem;box-shadow:0 8px 30px rgba(0,0,0,0.55);}
+.slide-reviews-head{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+.slide-reviews-head b{flex:1;}
+.slide-reviews-head .btn{flex:none;padding:4px 12px;}
+.rv-legend{margin:0 0 6px;font-size:0.75rem;color:rgba(255,255,255,0.6);line-height:1.5;}
+.rv-row{display:grid;grid-template-columns:1fr auto auto auto;gap:2px 10px;align-items:center;padding:6px 0;border-top:1px solid rgba(255,255,255,0.12);}
+.rv-who{font-weight:700;min-width:0;overflow-wrap:anywhere;}
+.rv-scores{font-family:'JetBrains Mono',monospace;letter-spacing:0.12em;color:#cfe6ea;}
+.rv-mean,.rv-gap{font-family:'JetBrains Mono',monospace;text-align:right;min-width:3.2em;}
+.rv-tags{grid-column:1 / -1;display:flex;gap:6px;flex-wrap:wrap;}
+.rv-tag{font-size:0.72rem;font-weight:700;padding:0 8px;border-radius:999px;background:#6b7280;color:#fff;}
+.rv-bad{background:rgba(179,38,30,0.18);}
+.rv-bad .rv-gap{color:#ffb4ab;font-weight:700;}
+.rv-bad .rv-tag.rv-t-gap{background:#b3261e;}
+.rv-same .rv-tag.rv-t-same{background:#c27a00;}
+.rv-tag.rv-t-flagged{background:#7a3db8;}
+/* 老師專用的資訊（加分列、評分明細、各種備註）一律低調：字小、顏色淡、按鈕只剩細框，不跟作品和雷達圖搶注意力 */
+.slide-bonus{font-size:0.68em;color:rgba(255,255,255,0.5);gap:4px;}
+.slide-bonus .btn{min-width:32px;padding:2px 7px;font-size:1em;font-weight:500;background:transparent;border:1px solid rgba(255,255,255,0.22);color:rgba(255,255,255,0.62);box-shadow:none;}
+.slide-bonus .btn.btn-primary{background:rgba(255,255,255,0.14);border-color:rgba(255,255,255,0.4);color:rgba(255,255,255,0.9);}
+.slide-bonus .btn.btn-return{background:transparent;border-color:rgba(255,138,128,0.45);color:rgba(255,138,128,0.8);}
+.slide-bonus-note,.slide-return-reason{font-size:0.66em;color:rgba(255,255,255,0.45);max-width:100%;overflow-wrap:anywhere;}
+.slide-bonus-note{white-space:nowrap;}
+.slide-return-reason{color:rgba(255,160,150,0.7);}
+.slide-info .returned-chip{font-size:0.65em;padding:0 6px;background:rgba(179,38,30,0.55);font-weight:500;}
+.slide-reviews{background:rgba(14,18,17,0.92);font-size:0.78rem;padding:8px 10px;box-shadow:none;border-color:rgba(255,255,255,0.14);color:rgba(255,255,255,0.78);}
+.slide-reviews-head b{font-weight:600;font-size:0.82rem;color:rgba(255,255,255,0.7);}
+.slide-reviews-head .btn{padding:1px 9px;font-size:0.72rem;background:transparent;border:1px solid rgba(255,255,255,0.22);color:rgba(255,255,255,0.6);}
+.rv-legend{font-size:0.68rem;color:rgba(255,255,255,0.42);}
+.rv-row{padding:4px 0;border-top-color:rgba(255,255,255,0.08);}
+.rv-who{font-weight:500;}
+.rv-scores{color:rgba(207,230,234,0.7);letter-spacing:0.08em;}
+.rv-mean,.rv-gap{color:rgba(255,255,255,0.6);}
+.rv-tag{font-size:0.64rem;font-weight:500;background:transparent;border:1px solid rgba(255,255,255,0.25);color:rgba(255,255,255,0.6);padding:0 6px;}
+.rv-bad{background:rgba(179,38,30,0.08);}
+.rv-bad .rv-gap{color:rgba(255,160,150,0.85);font-weight:500;}
+.rv-bad .rv-tag.rv-t-gap{background:transparent;border-color:rgba(255,138,128,0.5);color:rgba(255,138,128,0.85);}
+.rv-same .rv-tag.rv-t-same{background:transparent;border-color:rgba(230,170,70,0.5);color:rgba(230,170,70,0.85);}
+.rv-tag.rv-t-flagged{background:transparent;border-color:rgba(190,150,240,0.5);color:rgba(190,150,240,0.85);}
 .returned-chip{background:#b3261e;color:#fff;font-weight:700;padding:1px 8px;border-radius:999px;font-size:0.85em;white-space:nowrap;}
-.slide-bonus .btn.btn-return{background:#b3261e;color:#fff;border-color:#b3261e;}
-.slide-return-reason{font-size:0.8em;color:#ffb4ab;max-width:100%;overflow-wrap:anywhere;}
 .mine-returned{color:var(--warn);font-weight:700;font-size:0.82rem;}
-.slide-bonus-note{font-size:0.8em;color:rgba(255,255,255,0.7);white-space:nowrap;}
 /* 所有資訊、控制項都用絕對定位疊在畫面上，不佔版面空間，讓作品圖片盡量放到最大。 */
 .slide-meta-overlay{position:absolute;right:16px;bottom:16px;z-index:2;pointer-events:none;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:calc(1.3rem * var(--slide-scale));}
@@ -458,6 +494,9 @@ var apiUrl = getApiUrl();
 var homeStats = null;
 var honors = null; // 首頁榮譽榜資料（honors API）：每份作業的前三名＋人氣獎，或還沒公布時的進度
 var honorsAssignment = null;
+var slideReviewsOpen = false; // 教師作品牆播放時，是否打開「評分明細」面板
+var workReviewsCache = {};  // { 作品編號: 該作品的評分明細 }
+var workReviewsLoading = {};
 var homeDescAssignment = null; // 首頁作業要求說明目前選的是哪一份作業，null 就預設選第一份
 var mySubs = null;
 var mySubsFor = null; // mySubs 是哪個身分的清單，換人之後不能拿別人的清單來先顯示
@@ -1672,6 +1711,7 @@ function slideshowHtml(){
           '</div>' +
         '</div>' +
       '</div>' +
+      slideReviewsPanelHtml(r) +
       '<div class="slide-font-controls">' +
         '<button type="button" class="btn btn-accent" data-slide-font="1">A＋</button>' +
         '<span class="hint" style="color:#fff;text-align:center">'+Math.round(scale*100)+'%</span>' +
@@ -1689,6 +1729,53 @@ function slideshowHtml(){
     '</div>'
   );
 }
+/**
+ * 教師作品牆播放時的「評分明細」面板：這件作品每位評分者的座號姓名、各題分數、平均、和其他人的差距。
+ * 差距 1.5 分以上標紅、整份同一個分數標橘（最常見的隨便按），已登記過評分異常的標紫。
+ * 面板開著的時候，上一張／下一張會跟著換成新作品的明細，方便一件一件檢查。
+ */
+function slideReviewsPanelHtml(r){
+  if(!teacherGalleryActive || !slideReviewsOpen) return '';
+  var data = workReviewsCache[r.workCode];
+  var head = '<div class="slide-reviews-head"><b>評分明細</b><button type="button" class="btn btn-accent" data-reviews-toggle="1">關閉</button></div>';
+  if(!data){
+    if(!workReviewsLoading[r.workCode]) setTimeout(function(){ loadWorkReviews(r.workCode); }, 0);
+    return '<div class="slide-reviews">'+head+'<p class="rv-legend">載入中...</p></div>';
+  }
+  if(data.error) return '<div class="slide-reviews">'+head+'<p class="rv-legend" style="color:#ffb4ab">'+escapeHtml(data.error)+'</p></div>';
+  var list = data.reviews || [];
+  var rows = list.map(function(x){
+    var bad = x.gap != null && Math.abs(x.gap) >= 1.5;
+    var tags = '';
+    if(bad) tags += '<span class="rv-tag rv-t-gap">和其他人差距大</span>';
+    if(x.allSame) tags += '<span class="rv-tag rv-t-same">全部同一個分數</span>';
+    if(x.flagged) tags += '<span class="rv-tag rv-t-flagged">已登記</span>';
+    return '<div class="rv-row'+(bad?' rv-bad':'')+(x.allSame?' rv-same':'')+'">' +
+      '<span class="rv-who">'+escapeHtml(honorsNameOf(x))+'</span>' +
+      '<span class="rv-scores">'+x.scores.map(function(v){ return v==null?'–':v; }).join(' ')+'</span>' +
+      '<span class="rv-mean">'+(x.mean==null?'—':x.mean.toFixed(2))+'</span>' +
+      '<span class="rv-gap">'+(x.gap==null?'—':(x.gap>0?'+':'')+x.gap.toFixed(2))+'</span>' +
+      (tags ? '<span class="rv-tags">'+tags+'</span>' : '') +
+    '</div>';
+  }).join('');
+  return '<div class="slide-reviews">' + head +
+    '<p class="rv-legend">共 '+list.length+' 位評分者。每列依序：座號姓名｜各題分數（'+escapeHtml((data.criteria||[]).join('、'))+'）｜他的平均｜和其他人平均的差距。差距大的排最上面。</p>' +
+    (rows || '<p class="rv-legend">這件作品還沒有人評分。</p>') +
+  '</div>';
+}
+function loadWorkReviews(code){
+  var pass = teacherAuthPasscode();
+  if(!pass || workReviewsLoading[code]) return;
+  workReviewsLoading[code] = true;
+  apiGet('teacherWorkReviews', { passcode: pass, workCode: code }).then(function(res){
+    workReviewsCache[code] = (res && res.ok) ? res : { error: res && res.error==='unauthorized' ? '教師密語不對。' : '讀不到評分明細（請確認 Code.gs 已經重新部署最新版）。' };
+  }).catch(function(e){
+    workReviewsCache[code] = { error: '讀取失敗：' + e.message };
+  }).then(function(){
+    delete workReviewsLoading[code];
+    if(slideshowIndex != null && slideReviewsOpen) renderSlideshowOnly();
+  });
+}
 /** 老師加分列：只在教師模式的作品牆播放時出現。0＝不加分，1~3＝加幾分，總平均最高 5 分。 */
 function slideBonusHtml(r){
   if(!teacherGalleryActive) return '';
@@ -1699,7 +1786,8 @@ function slideBonusHtml(r){
   var ret = r.returned
     ? '<button type="button" class="btn btn-accent" data-return="undo">撤銷退回</button>'
     : '<button type="button" class="btn btn-return" data-return="1">退回</button>';
-  var flag = '<button type="button" class="btn btn-accent" data-flag="1">評分異常</button>';
+  var flag = '<button type="button" class="btn btn-accent" data-reviews-toggle="1">'+(slideReviewsOpen?'關閉明細':'評分明細')+'</button>' +
+    '<button type="button" class="btn btn-accent" data-flag="1">評分異常</button>';
   var bonusReason = (cur > 0 && r.bonusNote) ? '<div class="slide-bonus-note" style="white-space:normal">加分原因：'+escapeHtml(r.bonusNote.reason||'')+(r.bonusNote.at ? '（'+new Date(r.bonusNote.at).toLocaleDateString('zh-TW')+'）' : '')+'</div>' : '';
   return '<div class="slide-bonus"><span>老師加分</span>'+btns+ret+flag+'</div>' + bonusReason +
     (r.returned ? '<div class="slide-return-reason">退回原因：'+escapeHtml(r.returned.reason||'')+'</div>' : '');
@@ -1782,6 +1870,7 @@ function handleSlideFlag(){
     return apiGet('teacherFlagReviews', base).then(function(done){
       if(!done || !done.ok){ alert(failText(done)); return; }
       alert(mode === 'clear' ? '已撤銷 '+done.cleared+' 位同學的登記。' : '已登記 '+done.added+' 位同學。可以到試算表的「評分異常紀錄」分頁查看。');
+      delete workReviewsCache[r.workCode]; if(slideshowIndex != null && slideReviewsOpen) renderSlideshowOnly();
     });
   }).catch(function(e){ alert('操作沒有成功：' + e.message); });
 }
@@ -3900,7 +3989,14 @@ function attachHandlers(){
       slideshowIndex = parseInt(card.getAttribute('data-idx'),10) || 0;
       slideshowPlaying = false; enterFullscreen(); render(); return;
     }
-    if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
+    if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; slideReviewsOpen = false; workReviewsCache = {}; exitFullscreenIfActive(); render(); return; }
+    var rvBtn = e.target.closest('[data-reviews-toggle]');
+    if(rvBtn && slideshowIndex != null){
+      slideReviewsOpen = !slideReviewsOpen;
+      if(slideReviewsOpen && slideshowPlaying){ slideshowPlaying = false; stopSlideTimer(); } // 看明細時先暫停自動播放
+      renderSlideshowOnly();
+      return;
+    }
     var attBtn = e.target.closest('[data-att-bonus]');
     if(attBtn){ handleAttendanceBonus(attBtn.getAttribute('data-seat'), attBtn.getAttribute('data-name'), parseInt(attBtn.getAttribute('data-att-bonus'),10)); return; }
     var honorsChip = e.target.closest('[data-honors-assignment]');
