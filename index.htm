@@ -285,8 +285,10 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
   /* 手機直拿（橫放的矮螢幕走下面另一組規則）：上面留給字級按鈕和關閉鍵，下面留兩排（作品資訊＋控制列），中間才是圖片和雷達圖，
      這幾塊各佔各的位置，不會再疊在一起。 */
   .slide-body{flex-direction:column;top:56px;bottom:112px;}
-  .slide-stage{flex:1.3;}
-  .slide-radar{flex:1;min-width:0;max-height:34vh;}
+  /* min-height:0 很重要：沒有的話，直式照片（比較高的圖）會把圖片區撐得比分到的空間還高，
+     把雷達圖擠到下面去壓住作品資訊和控制列。flex-basis 設 0 讓兩塊純粹照比例分剩下的空間。 */
+  .slide-stage{flex:1.3 1 0;min-height:0;overflow:hidden;}
+  .slide-radar{flex:1 1 0;min-width:0;min-height:0;max-height:34vh;}
   .slide-font-controls{left:8px;top:8px;bottom:auto;transform:none;flex-direction:row;}
   .slide-font-controls .btn{width:38px;padding:6px 0;}
   .slide-meta-overlay{left:10px;right:10px;bottom:58px;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;}
@@ -1344,7 +1346,7 @@ function getSlideFontScale(){ return parseFloat(localStorage.getItem('crit.slide
 function handleSlideFontScale(delta){
   var next = Math.max(0.6, Math.min(2.5, Math.round((getSlideFontScale()+delta)*10)/10));
   localStorage.setItem('crit.slideFontScale', next);
-  render();
+  if(slideshowIndex != null) renderSlideshowOnly(); else render();
 }
 function galleryMetaHtml(r, scoreVal){
   var bits = [];
@@ -1501,9 +1503,23 @@ function slideAssignmentOptions(){
   return '<option value="">全部作業</option>' +
     (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
 }
+/**
+ * 播放展示切換上一張／下一張、自動換張、調字級時，只換掉「播放視窗」本身，不重畫整個頁面。
+ * 以前每換一張都是整頁重畫，蓋在下面的作品牆（連教師模式的頂端列）會跟著整個重建、跟著閃一下，
+ * 還要把底下幾十張縮圖的 DOM 重新做一遍，白白浪費。
+ */
+function renderSlideshowOnly(){
+  var old = document.querySelector('.slideshow-overlay');
+  var html = slideshowHtml();
+  if(!old || !html){ render(); return; }
+  var holder = document.createElement('div');
+  holder.innerHTML = html;
+  old.replaceWith(holder.firstElementChild);
+  scheduleBackgroundPreload();
+}
 function startSlideTimer(){
   stopSlideTimer();
-  slideshowTimer = setInterval(function(){ slideshowIndex = slideshowIndex + 1; render(); }, 4000);
+  slideshowTimer = setInterval(function(){ slideshowIndex = slideshowIndex + 1; renderSlideshowOnly(); }, 4000);
 }
 function stopSlideTimer(){
   if(slideshowTimer){ clearInterval(slideshowTimer); slideshowTimer = null; }
@@ -1532,7 +1548,7 @@ document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 function slideAdvance(delta){
   slideshowIndex = (slideshowIndex||0) + delta;
   if(slideshowPlaying) startSlideTimer();
-  render();
+  renderSlideshowOnly();
 }
 document.addEventListener('keydown', function(e){
   if(slideshowIndex==null) return;
@@ -3434,7 +3450,8 @@ function attachHandlers(){
     if(e.target.closest('#slidePlayPause')){
       slideshowPlaying = !slideshowPlaying;
       if(slideshowPlaying) startSlideTimer(); else stopSlideTimer();
-      render();
+      var ppBtn = document.getElementById('slidePlayPause'); // 只改按鈕上的字，連播放視窗都不用重畫
+      if(ppBtn) ppBtn.textContent = slideshowPlaying ? '暫停' : '播放'; else render();
       return;
     }
     if(e.target.closest('#equipSaveGroups')){ handleEquipSaveGroups(); return; }
