@@ -521,6 +521,9 @@ function popToast(){ var t = toastMsg; toastMsg = null; return t; }
 // 瀏覽器對 Google Apps Script 的 POST 有已知的重新導向/跨網域問題，
 // 會讓 fetch() 出現「Failed to fetch」，改用 GET 就不會遇到。
 function apiGet(action, payload){
+  // 這台裝置還沒設定資料庫網址就不要送出請求：網址是空的時候 Safari 會丟出看不懂的
+  // 「The string did not match the expected pattern」，改成直接告訴使用者該怎麼做。
+  if(!apiUrl) return Promise.reject(new Error('這台裝置還沒連接資料庫。請先到頁面最下面的「連接設定」貼上資料庫網址，或用老師給的學生連結重新開啟。'));
   // 學生端動作（帶 studentNorm / reviewerNorm 的）自動附上登入 token；
   // 老師已經解鎖教師專區的話也附上密語，方便老師用「快速切換身分」測試。
   if(payload && (payload.studentNorm || payload.reviewerNorm)){
