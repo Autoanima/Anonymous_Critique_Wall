@@ -363,6 +363,7 @@ var TEACHER_TABS = [
   { id:'return',     label:'器材歸還' },
   { id:'grades',     label:'評分總表' },
   { id:'progress',   label:'評分進度' },
+  { id:'gallery',    label:'作品牆' },
   { id:'export',     label:'匯出' },
   { id:'accounts',   label:'同學與資料' },
   { id:'settings',   label:'設定' }
@@ -371,6 +372,42 @@ var teacherTab = (function(){
   var saved = localStorage.getItem('crit.teacherTab');
   return TEACHER_TABS.some(function(t){ return t.id===saved; }) ? saved : 'attendance';
 })();
+
+// ---------- 教師模式的作品牆 ----------
+// 跟學生的作品牆是同一個畫面（排序、篩選、圖片牆／總表、播放展示都一樣），差別只有資料來源：
+// 老師看的是教師後台完整的資料（姓名、分數不受「幾位同學評完才解鎖」限制，預設就是打開的）。
+// 作品牆的資料和「顯示姓名／分數」的開關是跟學生模式共用的全域變數，所以進教師作品牆時先備份、
+// 離開（換分頁、回學生模式）時一定換回來，不然老師的完整資料會漏到學生看到的作品牆。
+var teacherGalleryActive = false;
+var teacherGalleryBackup = null;
+function deriveTeacherGalleryData(){
+  var cfg = teacherView.config;
+  return {
+    rows: (teacherView.rows||[]).map(function(r){
+      return { workCode:r.workCode, studentName:r.studentName, studentSeat:r.studentSeat, title:r.title, assignment:r.assignment,
+               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, count:r.count, unlocked:true };
+    }),
+    criteria: cfg.criteria, assignments: cfg.assignments||[],
+    revealMinReviewers: cfg.revealMinReviewers, revealMinReviews: cfg.revealMinReviews, revealProgress: {}
+  };
+}
+function enterTeacherGalleryMode(){
+  if(!teacherGalleryActive){
+    teacherGalleryBackup = { data: galleryData, names: galleryShowNames, scores: galleryShowScores };
+    teacherGalleryActive = true;
+    galleryShowNames = true; galleryShowScores = true;
+  }
+  galleryData = deriveTeacherGalleryData();
+}
+function leaveTeacherGalleryMode(){
+  if(!teacherGalleryActive) return;
+  teacherGalleryActive = false;
+  galleryData = teacherGalleryBackup.data;
+  galleryShowNames = teacherGalleryBackup.names;
+  galleryShowScores = teacherGalleryBackup.scores;
+  teacherGalleryBackup = null;
+  galleryVisibleCount = GALLERY_PAGE_SIZE;
+}
 // 點名名單的排序方式：'seat'=依座號（預設），'order'=依這組的轉圈順序；
 // 存點名結果之後自動切成 'order'，方便直接對照剛排好的輪值順序，但隨時可以切回座號排序。
 var attendanceSortMode = 'seat';
@@ -510,9 +547,30 @@ function getDeviceId(){
   if(!id){ id = uid('d_'); localStorage.setItem('crit.deviceId', id); }
   return id;
 }
-function teacherAuthPasscode(){ return sessionStorage.getItem('crit.teacherAuth') || ''; }
-function setTeacherAuthPasscode(p){ sessionStorage.setItem('crit.teacherAuth', p); }
-function clearTeacherAuth(){ sessionStorage.removeItem('crit.teacherAuth'); }
+// 老師登入一次之後，這台裝置 12 小時內都記得（不只是這個分頁）：手機把分頁收掉、切去別的 App 再回來、
+// 或是切去學生模式測試再切回來，都不用重新輸入密語。超過 12 小時會自動失效；
+// 換了密語或密語不對時會清掉。注意這會把密語存在這台裝置上，所以請不要在別人會用到的裝置上登入教師模式。
+var TEACHER_AUTH_HOURS = 12;
+function teacherAuthPasscode(){
+  var s = sessionStorage.getItem('crit.teacherAuth');
+  if(s) return s;
+  try{
+    var saved = JSON.parse(localStorage.getItem('crit.teacherAuthSaved') || 'null');
+    if(saved && saved.p && Date.now() - saved.t < TEACHER_AUTH_HOURS * 3600000){
+      sessionStorage.setItem('crit.teacherAuth', saved.p);
+      return saved.p;
+    }
+  }catch(e){}
+  return '';
+}
+function setTeacherAuthPasscode(p){
+  sessionStorage.setItem('crit.teacherAuth', p);
+  try{ localStorage.setItem('crit.teacherAuthSaved', JSON.stringify({ p:p, t:Date.now() })); }catch(e){}
+}
+function clearTeacherAuth(){
+  sessionStorage.removeItem('crit.teacherAuth');
+  try{ localStorage.removeItem('crit.teacherAuthSaved'); }catch(e){}
+}
 function getExtraTarget(){ var v = sessionStorage.getItem('crit.extraTarget'); return v ? parseInt(v,10) : 0; }
 
 var toastMsg = null;
@@ -1989,18 +2047,6 @@ function equipDurationQuickHtml(eq){
     '分' +
   '</span>';
 }
-/**
- * 教師頁頂端導覽列上的作業切換器，佔掉原本「開始」按鈕騰出來的位置。
- * 跟下面「作業繳交狀況」共用同一個 teacherAssignmentFilter，切這裡下面的
- * 報表（含評分進度）會跟著變，不用捲到下面才能換作業。
- */
-function teacherHeaderAssignmentSwitcherHtml(){
-  var assignments = (teacherView && teacherView.config && teacherView.config.assignments) || [];
-  if(!assignments.length) return '';
-  var options = '<option value="">全部作業</option>' +
-    assignments.map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(teacherAssignmentFilter===a?' selected':'')+'>作業 '+escapeHtml(a)+'</option>'; }).join('');
-  return '<select id="teacherHeaderAssignmentFilter" class="navbtn navbtn-select">'+options+'</select>';
-}
 /** 只看「有排定順序的組」，全部都跑完了才算數——沒排順序的空組別不該讓整體被誤判為已完成。 */
 function isAllEquipmentDone(eq){
   if(!eq || !eq.startedAt || !eq.groups) return false;
@@ -2474,6 +2520,12 @@ function screenTeacher(){
     progress: function(){
       return assignmentSwiperHtml + reviewerSection;
     },
+    gallery: function(){
+      enterTeacherGalleryMode();
+      // 學生版作品牆自己有一個大標題，這裡不需要（選單上已經亮著「作品牆」）
+      return '<div class="cta-row"><button class="btn btn-accent" id="refreshData">重新整理資料</button></div>' +
+        screenGallery().replace('<h1 class="screen-title">作品牆</h1>', '');
+    },
     'export': function(){
       return reportsExportSectionHtml(teacherView, cfg);
     },
@@ -2484,9 +2536,8 @@ function screenTeacher(){
       return h2('教師設定') + configHtml + equipmentAdminHtml() + dangerZoneHtml;
     }
   };
-  var tabLabel = '';
-  TEACHER_TABS.forEach(function(t){ if(t.id===teacherTab) tabLabel = t.label; });
-  return '<h1 class="screen-title">'+tabLabel+'</h1>' + bodies[teacherTab]();
+  // 不再另外放大標題：目前是哪一頁，選單上亮起來的分頁就已經看得出來，標題只是重複佔高度。
+  return '<div class="teacher-page">' + bodies[teacherTab]() + '</div>';
 }
 
 function screenHtml(role){
@@ -2523,17 +2574,19 @@ function navHtml(role){
         '</nav>' +
         '<span id="teacherEquipControlsSlot" style="display:contents">' + equipStartPauseButtonsHtml(equipmentData) + '</span>' +
       '</div>' +
-      // 作業下拉選單只有「評分總表」「評分進度」用得到，其他分頁不顯示，少一排
-      ((teacherTab==='grades' || teacherTab==='progress')
-        ? '<nav class="tabs"><span id="teacherHeaderAssignmentSlot" style="display:contents">' + teacherHeaderAssignmentSwitcherHtml() + '</span></nav>'
-        : '') +
     '</header>';
   }
-  return '<header class="topbar"><div class="topbar-top"><div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>'+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','評分')+btn('gallery','作品牆')+btn('equipment','借器材')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
+  // 老師已經登入過教師模式的話，左上角換成一顆「教師模式」按鈕，一點就切回去（不用再輸入密語）；
+  // 學生的裝置沒登入過教師模式，看到的還是原本的標題。
+  var brandHtml = teacherAuthPasscode()
+    ? '<div class="brand"><span class="brand-mark">&#9686;</span><button type="button" class="teacher-mode-btn" data-nav="teacher" title="回到教師模式">教師模式</button></div>'
+    : '<div class="brand"><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>';
+  return '<header class="topbar"><div class="topbar-top">'+brandHtml+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','評分')+btn('gallery','作品牆')+btn('equipment','借器材')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
 }
 
 function render(){
   var role = getRole();
+  if(role!=='teacher' || teacherTab!=='gallery') leaveTeacherGalleryMode();
   var toast = popToast();
   var html =
     '<div class="shell">' +
@@ -3304,7 +3357,6 @@ function attachHandlers(){
     if(e.target.id==='f_file'){ handleFileChange(e.target); return; }
     if(e.target.id==='gallerySort'){ gallerySort = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; render(); return; }
     if(e.target.id==='galleryAssignment'){ galleryAssignment = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; render(); return; }
-    if(e.target.id==='teacherHeaderAssignmentFilter'){ teacherAssignmentFilter = e.target.value; render(); return; }
     if(e.target.id==='slideAssignmentFilter'){ galleryAssignment = e.target.value; galleryVisibleCount = GALLERY_PAGE_SIZE; slideshowIndex = 0; render(); return; }
     if(e.target.id==='toggleGalleryNames'){ galleryShowNames = e.target.checked; render(); return; }
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; render(); return; }
