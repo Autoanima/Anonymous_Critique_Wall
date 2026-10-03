@@ -435,7 +435,28 @@ function getMyName(){ return localStorage.getItem('crit.myName') || ''; }
 function setMyName(n){ localStorage.setItem('crit.myName', n); }
 function getMySeat(){ return cleanSeat(localStorage.getItem('crit.mySeat') || ''); }
 function setMySeat(s){ localStorage.setItem('crit.mySeat', cleanSeat(s)); }
-function hasIdentity(){ return !!(getMySeat() && getMyName()); }
+// 登入 token：登入成功後伺服器發的，綁定座號，換座號就失效。用班級名單登入的情況下，沒有 token 就視為還沒登入。
+function getToken(){
+  var t = localStorage.getItem('crit.token');
+  if(!t) return '';
+  return localStorage.getItem('crit.tokenSeat')===normSeat(getMySeat()) ? t : '';
+}
+function setToken(t){ localStorage.setItem('crit.token', t); localStorage.setItem('crit.tokenSeat', normSeat(getMySeat())); }
+function clearToken(){ localStorage.removeItem('crit.token'); localStorage.removeItem('crit.tokenSeat'); }
+var accountsSupported = true; // 後端還沒更新到有密碼功能的版本時會變 false，退回不用密碼的舊流程
+function authRequired(){ return accountsSupported && rosterReady(); } // 有班級名單的時候才要求登入密碼；沒名單（或名單載入失敗）退回舊的自己打姓名
+function hasIdentity(){ return !!(getMySeat() && getMyName()) && (!authRequired() || !!getToken()); }
+
+// 密碼（身分證字號）：全形轉半形、去空白、英文一律大寫，所以大小寫、全半形都不影響；
+// 在這支手機上先轉成 SHA-256 亂碼才送出，伺服器和試算表都看不到原文。
+function normalizePassword(p){ return toHalfWidth(p).replace(/\s+/g,'').toUpperCase(); }
+function sha256Hex(str){
+  if(!(window.crypto && window.crypto.subtle)) return Promise.reject(new Error('這個瀏覽器不支援安全的密碼處理，請改用最新版的 Chrome 或 Safari，並確認網址是 https 開頭。'));
+  return window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function(buf){
+    return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ('0'+b.toString(16)).slice(-2); }).join('');
+  });
+}
+function pwHashFor(seat, pw){ return sha256Hex('crit-v1|'+normSeat(seat)+'|'+normalizePassword(pw)); }
 function identityNorm(){ return normSeat(getMySeat()) + '::' + normName(getMyName()); }
 /**
  * 跟座號姓名分開存的一組隨機代碼，交作品時偷偷夾帶送出，畫面上完全不會顯示、
@@ -463,15 +484,34 @@ function popToast(){ var t = toastMsg; toastMsg = null; return t; }
 // 瀏覽器對 Google Apps Script 的 POST 有已知的重新導向/跨網域問題，
 // 會讓 fetch() 出現「Failed to fetch」，改用 GET 就不會遇到。
 function apiGet(action, payload){
+  // 學生端動作（帶 studentNorm / reviewerNorm 的）自動附上登入 token；
+  // 老師已經解鎖教師專區的話也附上密語，方便老師用「快速切換身分」測試。
+  if(payload && (payload.studentNorm || payload.reviewerNorm)){
+    var tk = getToken();
+    if(tk) payload.token = tk;
+    var tp = teacherAuthPasscode();
+    if(tp) payload.teacherPass = tp;
+  }
   var qs = 'action=' + encodeURIComponent(action || 'home');
   if(payload) qs += '&payload=' + encodeURIComponent(JSON.stringify(payload));
   return fetch(apiUrl + '?' + qs, { method:'GET' }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   }).then(function(json){
+    if(json && json.ok===false && json.error==='auth'){
+      handleAuthFailure();
+      throw new Error('請重新登入');
+    }
     if(json && Array.isArray(json.assignments) && json.assignments.length) assignmentsList = json.assignments;
     return json;
   });
+}
+/** 伺服器說「這個座號設過密碼，你的 token 不對或過期了」：清掉 token，畫面會自動回到登入。 */
+function handleAuthFailure(){
+  clearToken();
+  loginStep = null;
+  setToast('error', '請重新登入（輸入密碼）。');
+  if(!equipmentData && !rosterFailed) loadEquipment(); else render();
 }
 // 只用在「上傳圖片」：資料量太大塞不進網址，用 fetch 的 no-cors POST
 // 在 Apps Script 的重新導向機制上會整個卡住，改用最老牌的做法——
@@ -652,13 +692,72 @@ function resizeImageFile(file){
 
 function statTile(n, label){ return '<div class="stat"><span class="stat-num">'+n+'</span><span class="stat-label">'+escapeHtml(label)+'</span></div>'; }
 
+// ---------- 班級名單登入：名單就是老師在「器材借用」設好的分組名單（座號 + 姓名）----------
+var rosterFailed = false; // 名單載入失敗（例如沒網路）時，退回讓學生自己打姓名，不能卡死在登入畫面
+var loginStep = null;     // 輸入完座號、確認姓名之後的密碼步驟：{ rawSeat, seat, name, mode:'login'|'register', error }
+function rosterMembers(){
+  var out = [];
+  if(equipmentData && equipmentData.groups){
+    equipmentData.groups.forEach(function(g){
+      (g.members||[]).forEach(function(m){ if(m && String(m.seat==null?'':m.seat).trim()) out.push(m); });
+    });
+  }
+  return out;
+}
+function rosterReady(){ return rosterMembers().length > 0; }
+function rosterLookup(seatInput){
+  var want = normSeat(seatInput);
+  if(!want) return null;
+  var ms = rosterMembers();
+  for(var i=0;i<ms.length;i++) if(normSeat(ms[i].seat)===want) return ms[i];
+  return null;
+}
+function rosterPreviewHtml(seatInput){
+  if(!String(seatInput||'').trim()) return '';
+  var m = rosterLookup(seatInput);
+  if(!m) return '<span style="color:var(--warn)">名單上找不到這個座號，請確認有沒有輸入錯誤。</span>';
+  var nm = String(m.name||'').trim();
+  return nm ? '你是：<strong>'+escapeHtml(cleanSeat(m.seat))+'號 '+escapeHtml(nm)+'</strong>' : '<span style="color:var(--warn)">名單上這個座號還沒有填姓名，請跟老師確認。</span>';
+}
+
 function identitySectionHtml(){
   var seat = getMySeat(), name = getMyName();
-  if(seat && name && !identityEditing){
+  if(loginStep){
+    var reg = loginStep.mode==='register';
+    return (
+      '<div class="card form">' +
+        '<h2 class="screen-title" style="font-size:1.05rem">'+escapeHtml(loginStep.seat)+'號 '+escapeHtml(loginStep.name)+'</h2>' +
+        (reg
+          ? '<p class="hint">第一次登入，請設定一組密碼。<strong>建議使用身分證字號</strong>（例如 A123456789），英文字母大小寫、全形半形都可以。之後換手機或電腦登入，就輸入這組密碼。</p>' +
+            '<p class="hint">你輸入的密碼會先在你的手機上轉成一串亂碼才送出，老師和系統都看不到原本的內容。忘記密碼請找老師重設。</p>'
+          : '<p class="hint">請輸入你的密碼（身分證字號，英文字母大小寫、全形半形都可以）。忘記密碼請找老師重設。</p>') +
+        '<label class="field"><span>'+(reg?'設定密碼':'密碼')+'</span><input required id="id_pw" type="password" autocomplete="off" autocapitalize="characters"></label>' +
+        (reg ? '<label class="field"><span>再輸入一次</span><input required id="id_pw2" type="password" autocomplete="off" autocapitalize="characters"></label>' : '') +
+        (loginStep.error ? '<p class="hint" style="color:var(--warn)">'+escapeHtml(loginStep.error)+'</p>' : '') +
+        '<button type="button" class="btn btn-primary" id="loginSubmit">'+(reg?'設定並登入':'登入')+'</button>' +
+        '<button type="button" class="footer-link" id="loginCancel" style="margin-top:8px">換一個座號</button>' +
+      '</div>'
+    );
+  }
+  if(hasIdentity() && !identityEditing){
     return (
       '<div class="card identity-card">' +
         '<p class="hint">目前身分：<strong>'+escapeHtml(seat)+'號 '+escapeHtml(name)+'</strong>　' +
         '<button type="button" class="footer-link" id="editIdentity">修改</button></p>' +
+      '</div>'
+    );
+  }
+  var rosterOn = rosterReady();
+  var rosterLoading = !rosterOn && !equipmentData && !rosterFailed && !!apiUrl;
+  if(rosterOn || rosterLoading){
+    // 有班級名單（器材分組那份）：只要輸入座號，姓名由名單自動帶出，不用自己打，也就不會打錯。
+    return (
+      '<div class="card form">' +
+        '<h2 class="screen-title" style="font-size:1.05rem">先輸入你的座號</h2>' +
+        '<p class="hint">輸入座號後，系統會從班級名單自動帶出你的姓名，確認是你本人再按「確認」。這台裝置會記住，不用每次重填。</p>' +
+        '<label class="field"><span>座號</span><input required id="id_seat" inputmode="numeric" value="'+escapeAttr(seat)+'" placeholder="例如：13"></label>' +
+        '<p class="hint" id="id_namePreview" style="min-height:1.4em">'+rosterPreviewHtml(seat)+'</p>' +
+        '<button type="button" class="btn btn-primary" id="saveIdentity" '+(rosterLoading?'disabled':'')+'>'+(rosterLoading?'班級名單載入中...':'確認')+'</button>' +
       '</div>'
     );
   }
@@ -1265,9 +1364,10 @@ function loadEquipment(){
   if(!apiUrl){ equipmentData=null; render(); return; }
   apiGet('equipmentGet').then(function(res){
     equipmentData = res.equipment;
+    rosterFailed = false;
     render();
     ensureEquipmentTicking();
-  }).catch(function(e){ setToast('error','載入失敗：'+e.message); render(); });
+  }).catch(function(e){ rosterFailed = true; setToast('error','載入失敗：'+e.message); render(); });
 }
 /**
  * 這兩個計時器現在是「全域」的，跟目前在哪一個分頁無關——因為最上面那條
@@ -2042,6 +2142,11 @@ function reportsExportSectionHtml(tv, cfg){
     '<div class="card">' +
       '<p class="hint">已經交過的作品，雲端硬碟裡的圖檔如果還是舊檔名，按下面按鈕會整批改成「座號_姓名_作業名稱_第N個作品.jpg」。只會動本系統自己的上傳資料夾裡的檔案（學生貼的外部連結不會被碰到），改名不影響作品牆顯示，可以重複按，已經改對的會自動略過。</p>' +
       '<button type="button" class="btn btn-accent" id="renameUploadsBtn" style="width:100%">整理雲端硬碟裡的作品檔名</button>' +
+    '</div>' +
+    '<div class="card">' +
+      '<p class="hint">同學忘記密碼時，輸入他的座號按「重設密碼」：他現有的登入會全部失效，下次登入時重新設定一組新的。密碼是學生自己設的（建議用身分證字號），系統只存「亂碼」，連老師也看不到原文，所以沒辦法查詢，只能重設。</p>' +
+      '<label class="field"><span>座號</span><input id="resetPwSeat" placeholder="例如：13"></label>' +
+      '<button type="button" class="btn btn-accent" id="resetPwBtn" style="width:100%">重設這位同學的密碼</button>' +
     '</div>'
   );
 }
@@ -2523,6 +2628,8 @@ function handleSubmitWork(form){
     // 送出後改用 apiGet 輪詢確認有沒有存成功、順便拿到伺服器配的作品編號。
     payload.imageBase64 = pendingImage.base64;
     payload.imageMime = pendingImage.mime;
+    payload.token = getToken(); // 隱藏表單不是走 apiGet，要自己帶登入 token
+    if(teacherAuthPasscode()) payload.teacherPass = teacherAuthPasscode();
     pendingImage = null;
     postFormNoRead('addSubmission', payload);
     pollForSubmission(payload.id, 0).then(function(sub){
@@ -2762,10 +2869,62 @@ function fallbackCopy(input, done){
   try{ input.removeAttribute('readonly'); input.select(); document.execCommand('copy'); input.setAttribute('readonly',''); done(); }
   catch(e){ alert('複製失敗，請手動選取文字複製。'); }
 }
+function handleLoginSubmit(){
+  if(!loginStep) return;
+  var step = loginStep;
+  var reg = step.mode==='register';
+  var pw = document.getElementById('id_pw').value;
+  if(normalizePassword(pw).length < 4){ alert('密碼至少要 4 個字。'); return; }
+  if(reg){
+    var pw2 = document.getElementById('id_pw2').value;
+    if(normalizePassword(pw) !== normalizePassword(pw2)){ alert('兩次輸入的密碼不一樣，請再確認一次。'); return; }
+  }
+  var btn = document.getElementById('loginSubmit');
+  if(btn){ btn.disabled = true; btn.textContent = '處理中...'; }
+  pwHashFor(step.rawSeat, pw).then(function(hash){
+    return apiGet(reg ? 'register' : 'login', { seat: step.rawSeat, pwHash: hash });
+  }).then(function(res){
+    if(res.ok){
+      setMySeat(step.rawSeat); setMyName(step.name); setToken(res.token);
+      loginStep = null; identityEditing = false;
+      setToast('success', reg ? '密碼設定好了，已登入。' : '登入成功。');
+      goTo(getRole());
+      return;
+    }
+    if(res.error==='bad_password') step.error = '密碼不對，請再試一次'+(res.left!=null ? '（還可以試 '+res.left+' 次）' : '')+'。忘記的話請找老師重設。';
+    else if(res.error==='locked') step.error = '輸入錯誤太多次了，請過 10 分鐘再試，或找老師重設密碼。';
+    else if(res.error==='exists'){ step.mode = 'login'; step.error = '這個座號已經設定過密碼了，請直接輸入密碼登入。'; }
+    else if(res.error==='no_account'){ step.mode = 'register'; step.error = '這個座號還沒有設定密碼，請先設定一組。'; }
+    else if(res.error==='not_in_roster') step.error = '名單上找不到這個座號，請跟老師確認。';
+    else step.error = '登入失敗（'+(res.error||'unknown')+'），請稍後再試。';
+    render();
+  }).catch(function(err){
+    if(btn){ btn.disabled = false; btn.textContent = reg ? '設定並登入' : '登入'; }
+    alert('登入失敗：'+err.message);
+  });
+}
+function handleResetPassword(){
+  var input = document.getElementById('resetPwSeat');
+  var seat = input ? input.value.trim() : '';
+  if(!seat){ alert('請先輸入要重設密碼的座號。'); return; }
+  var member = rosterLookup(seat);
+  var who = member ? (cleanSeat(member.seat)+' 號 '+String(member.name||'')) : (seat+' 號');
+  if(!confirm('要重設 '+who+' 的密碼嗎？他現有的登入會全部失效，下次登入要重新設定密碼。')) return;
+  apiGet('resetPassword', { passcode: teacherAuthPasscode(), seat: seat }).then(function(res){
+    if(!res.ok){ alert('重設失敗：'+(res.error||'unknown')); return; }
+    setToast(res.removed ? 'success' : 'info', res.removed ? who+' 的密碼已經重設，他下次登入會重新設定。' : who+' 目前還沒有設定過密碼，不用重設。');
+    render();
+  }).catch(function(e){ alert('重設失敗：'+e.message); });
+}
 function handleDeleteSubmission(id){
   if(!confirm('確定要刪除這件作品嗎？已經收到的評分也會一併刪除，無法復原。')) return;
-  apiGet('deleteSubmission', { id: id, studentNorm: identityNorm() }).then(function(res){
-    if(!res.ok){ setToast('error','刪除失敗，請稍後再試。'); render(); return; }
+  apiGet('deleteSubmission', { id: id, studentNorm: identityNorm(), deviceId: getDeviceId() }).then(function(res){
+    if(!res.ok){
+      setToast('error', res.error==='wrong_device'
+        ? '這件作品不是用這台裝置交的，為了避免誤刪別人的作品，只能用原本交作品的那支手機／電腦刪除；如果真的要刪，請找老師幫忙。'
+        : '刪除失敗，請稍後再試。');
+      render(); return;
+    }
     setToast('success','已刪除');
     loadMySubs();
   }).catch(function(e){ setToast('error','刪除失敗：'+e.message); render(); });
@@ -2845,14 +3004,42 @@ function attachHandlers(){
     }
     if(e.target.closest('#saveIdentity')){
       var seatVal = document.getElementById('id_seat').value.trim();
-      var nameVal = document.getElementById('id_name').value.trim();
-      if(!seatVal || !nameVal){ alert('座號和姓名都要填喔'); return; }
-      setMySeat(seatVal); setMyName(nameVal);
+      var nameInput = document.getElementById('id_name');
+      if(!nameInput){
+        // 名單模式：只認座號，姓名一律用名單上的，確認過才存。
+        if(!seatVal){ alert('請輸入座號'); return; }
+        var member = rosterLookup(seatVal);
+        if(!member){ alert('名單上找不到座號 '+seatVal+'，請確認有沒有輸入錯誤；如果沒錯，請跟老師確認名單。'); return; }
+        var rosterName = String(member.name||'').trim();
+        if(!rosterName){ alert('名單上這個座號還沒有填姓名，請跟老師確認。'); return; }
+        if(!confirm('你是 '+cleanSeat(member.seat)+' 號 '+rosterName+' 嗎？')) return;
+        // 姓名確認之後還要密碼：先問伺服器這個座號設過密碼沒（沒設過 = 第一次登入，要設定）
+        apiGet('accountStatus', { seat: member.seat }).then(function(res){
+          if(res && res.error==='unknown_action'){
+            // 後端 Code.gs 還沒更新成有密碼功能的版本：先退回不用密碼的舊流程，不要讓大家登入不了。
+            accountsSupported = false;
+            setMySeat(member.seat); setMyName(rosterName);
+            identityEditing = false;
+            setToast('success','身分已設定');
+            goTo(getRole());
+            return;
+          }
+          loginStep = { rawSeat: member.seat, seat: cleanSeat(member.seat), name: rosterName, mode: res.exists ? 'login' : 'register', error: '' };
+          render();
+        }).catch(function(err){ alert('連線失敗：'+err.message+'，請檢查網路後再試一次。'); });
+        return;
+      } else {
+        var nameVal = nameInput.value.trim();
+        if(!seatVal || !nameVal){ alert('座號和姓名都要填喔'); return; }
+        setMySeat(seatVal); setMyName(nameVal);
+      }
       identityEditing = false;
       setToast('success','身分已設定');
       goTo(getRole());
       return;
     }
+    if(e.target.closest('#loginCancel')){ loginStep = null; render(); return; }
+    if(e.target.closest('#loginSubmit')){ handleLoginSubmit(); return; }
     if(e.target.closest('#hideQuickIdentity')){
       localStorage.setItem('crit.quickIdentityEnabled', '0');
       setToast('info','已隱藏，要再打開請到「教師專區」重新勾選');
@@ -2863,12 +3050,18 @@ function attachHandlers(){
     if(quickBtn){
       setMySeat(quickBtn.getAttribute('data-quick-seat'));
       setMyName(quickBtn.getAttribute('data-quick-name'));
+      setToken('teacher-test'); // 老師測試用，不用真的登入；伺服器那邊靠老師已解鎖教師專區的密語放行
       identityEditing = false;
       setToast('success','已切換身分');
       render();
       return;
     }
-    if(e.target.closest('#editIdentity')){ identityEditing = true; render(); return; }
+    if(e.target.closest('#editIdentity')){
+      identityEditing = true;
+      if(!equipmentData && !rosterFailed) loadEquipment(); // 要用名單帶出姓名，名單還沒載入就先去抓（loadEquipment 自己會重畫）
+      else render();
+      return;
+    }
     var sortHeaderEl = e.target.closest('[data-sort-key]');
     if(sortHeaderEl){
       var fullLabel = sortHeaderEl.getAttribute('data-full-label');
@@ -2900,6 +3093,7 @@ function attachHandlers(){
     if(e.target.closest('#resetAllDataBtn')){ handleResetAllData(); return; }
     if(e.target.closest('#exportReportsToSheet')){ handleExportReportsToSheet(); return; }
     if(e.target.closest('#renameUploadsBtn')){ handleRenameUploads(); return; }
+    if(e.target.closest('#resetPwBtn')){ handleResetPassword(); return; }
     var delBtn = e.target.closest('[data-del]');
     if(delBtn){ handleDeleteSubmission(delBtn.getAttribute('data-del')); return; }
     if(e.target.closest('#downloadBundle')){ handleDownloadBundle(); return; }
@@ -2980,6 +3174,11 @@ function attachHandlers(){
   // 拖曳滑桿的當下先只更新畫面上的數字，不要每移動一點就打一次 API，
   // 真正送出存檔是放開滑桿時觸發的 change 事件（上面 root.onchange）。
   root.oninput = function(e){
+    if(e.target.id==='id_seat'){
+      var preview = document.getElementById('id_namePreview');
+      if(preview) preview.innerHTML = rosterPreviewHtml(e.target.value);
+      return;
+    }
     if(e.target.id==='equipDurationSlider'){
       var v = document.getElementById('equipDurationValue');
       if(v) v.textContent = e.target.value;
@@ -3019,7 +3218,10 @@ function init(){
     apiGet('home').then(function(){ markCritical('home'); render(); }).catch(function(){ markCritical('home'); });
   }
   if(role!=='submit') prefetchMySubs(); // 人在交作品頁的話，goTo 已經會抓，不重複
-  if(role!=='equipment' && role!=='teacher') afterCritical(loadEquipment);
+  if(role!=='equipment' && role!=='teacher'){
+    // 還沒登入的人需要班級名單才能登入，名單馬上抓；已經登入的人排在優先功能後面
+    if(hasIdentity()) afterCritical(loadEquipment); else loadEquipment();
+  }
 }
 init();
 })();
