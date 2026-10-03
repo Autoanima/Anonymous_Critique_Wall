@@ -61,6 +61,11 @@ button,input,textarea{font-family:inherit;}
 .navbtn{flex:1;padding:10px 8px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);font-size:0.85rem;font-weight:500;cursor:pointer;}
 .navbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;}
 .navbtn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+.tabs-scroll{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.tabs-scroll::-webkit-scrollbar{display:none;}
+.tabs-scroll .navbtn{flex:none;white-space:nowrap;padding:10px 16px;}
+.settings-fold{margin-top:10px;}
+.settings-fold>summary{cursor:pointer;font-weight:700;padding:4px 0;}
 .navbtn-select{-webkit-appearance:none;appearance:none;text-align:center;text-align-last:center;padding-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 .content{padding-top:20px;display:flex;flex-direction:column;gap:16px;}
@@ -332,6 +337,21 @@ var identityEditing = false;
 var assignmentsList = []; // 從 home/gallery/teacherFetch 回應同步過來
 var reviewAssignment = null; // null = 還沒選要評哪個作業
 var teacherAssignmentFilter = '';
+// 教師專區改成分頁：功能都在最上面的選單切換，不用在一長串頁面裡往下滑著找。順序依上課流程排列。
+var TEACHER_TABS = [
+  { id:'attendance', label:'點名' },
+  { id:'equipment',  label:'器材借用' },
+  { id:'return',     label:'器材歸還' },
+  { id:'grades',     label:'評分總表' },
+  { id:'progress',   label:'評分進度' },
+  { id:'export',     label:'匯出' },
+  { id:'accounts',   label:'同學與資料' },
+  { id:'settings',   label:'設定' }
+];
+var teacherTab = (function(){
+  var saved = localStorage.getItem('crit.teacherTab');
+  return TEACHER_TABS.some(function(t){ return t.id===saved; }) ? saved : 'attendance';
+})();
 // 點名名單的排序方式：'seat'=依座號（預設），'order'=依這組的轉圈順序；
 // 存點名結果之後自動切成 'order'，方便直接對照剛排好的輪值順序，但隨時可以切回座號排序。
 var attendanceSortMode = 'seat';
@@ -1729,7 +1749,7 @@ function equipmentReturnChecklistHtml(eq, group){
 function teacherEquipmentOverviewHtml(eq){
   if(!eq) return '<div class="card"><p class="hint">載入中...</p></div>';
   if(!eq.groups || !eq.groups.length){
-    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材借用管理」新增分組名單。</p></div>';
+    return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材借用管理」新增分組名單。</p></div>';
   }
   return eq.groups.map(function(g){
     var state = equipGroupState(eq, g);
@@ -1854,7 +1874,7 @@ function equipAttendanceHtml(eq){
     return '<div class="card"><p class="hint">載入中...</p></div>';
   }
   if(!eq.groups || !eq.groups.length){
-    return '<div class="card"><p class="hint">還沒有設定分組，請到下面「器材借用管理」新增分組名單。</p></div>';
+    return '<div class="card"><p class="hint">還沒有設定分組，請到上方「設定」分頁的「器材借用管理」新增分組名單。</p></div>';
   }
   var mode = attendanceSortMode;
   var groupsHtml = eq.groups.map(function(g){
@@ -2138,15 +2158,20 @@ function reportsExportSectionHtml(tv, cfg){
       '<p class="hint">目前跨所有作業合計有 <strong style="color:'+(shortfallCount?'var(--low)':'var(--good)')+'">'+shortfallCount+'</strong> 筆「評分件數未達 '+required+' 件」的記錄。</p>' +
       '<p class="hint">按下面按鈕，會把網頁上全部的報表都依座號排序整理好，直接寫進你 Google 試算表裡的 6 個分頁——評分未達標名單、作業繳交狀況、評分總表、評分進度、器材借用報表、器材放棄紀錄。方便你在試算表那邊統一總覽、算成績，每次按都會把這 6 個分頁整個更新成最新資料，不是累加。</p>' +
       '<button type="button" class="btn btn-primary" id="exportReportsToSheet" style="width:100%" '+(loading?'disabled':'')+'>'+(loading?'處理中...':'更新試算表報表')+'</button>' +
-    '</div>' +
-    '<div class="card">' +
-      '<p class="hint">已經交過的作品，雲端硬碟裡的圖檔如果還是舊檔名，按下面按鈕會整批改成「座號_姓名_作業名稱_第N個作品.jpg」。只會動本系統自己的上傳資料夾裡的檔案（學生貼的外部連結不會被碰到），改名不影響作品牆顯示，可以重複按，已經改對的會自動略過。</p>' +
-      '<button type="button" class="btn btn-accent" id="renameUploadsBtn" style="width:100%">整理雲端硬碟裡的作品檔名</button>' +
-    '</div>' +
+    '</div>'
+  );
+}
+/** 「同學與資料」分頁：同學帳號（重設密碼）和雲端硬碟資料維護（作品檔名）。 */
+function accountsDataSectionHtml(){
+  return (
     '<div class="card">' +
       '<p class="hint">同學忘記密碼時，輸入他的座號按「重設密碼」：他現有的登入會全部失效，下次登入時重新設定一組新的。密碼是學生自己設的（建議用身分證字號），系統只存「亂碼」，連老師也看不到原文，所以沒辦法查詢，只能重設。</p>' +
       '<label class="field"><span>座號</span><input id="resetPwSeat" placeholder="例如：13"></label>' +
       '<button type="button" class="btn btn-accent" id="resetPwBtn" style="width:100%">重設這位同學的密碼</button>' +
+    '</div>' +
+    '<div class="card">' +
+      '<p class="hint">已經交過的作品，雲端硬碟裡的圖檔如果還是舊檔名，按下面按鈕會整批改成「座號_姓名_作業名稱_第N個作品.jpg」。只會動本系統自己的上傳資料夾裡的檔案（學生貼的外部連結不會被碰到），改名不影響作品牆顯示，可以重複按，已經改對的會自動略過。</p>' +
+      '<button type="button" class="btn btn-accent" id="renameUploadsBtn" style="width:100%">整理雲端硬碟裡的作品檔名</button>' +
     '</div>'
   );
 }
@@ -2259,9 +2284,41 @@ function screenTeacher(){
         sortTh('狀態','reviewer','met',reviewerSortKey,reviewerSortDir) +
       '</tr></thead><tbody>' + (reviewerRows || '<tr><td colspan="99" class="hint">目前還沒有人交作品或評分。</td></tr>') + '</tbody></table></div>';
   } else {
+    // 沒選特定作業：一人一列，每份作業一格，一眼看出誰在哪份作業還沒評完（不同作業仍是各自計算，這裡只是並排顯示）
+    var byRvr = teacherView.reviewersByAssignment || {};
+    var progressAssignments = assignments.filter(function(a){ return (byRvr[a]||[]).length; });
+    var students = {};
+    progressAssignments.forEach(function(a){
+      (byRvr[a]||[]).forEach(function(rv){
+        var key = normSeat(rv.seat)+'::'+rv.name;
+        students[key] = students[key] || { seat:rv.seat, name:rv.name, cells:{} };
+        students[key].cells[a] = rv;
+      });
+    });
+    var studentList = Object.keys(students).map(function(k){ return students[k]; });
+    studentList.sort(function(a,b){ return seatNumFor(a.seat) - seatNumFor(b.seat); });
+    var progressHead = progressAssignments.map(function(a){ return '<th>'+escapeHtml(a)+'</th>'; }).join('');
+    var progressRows = studentList.map(function(st){
+      var metCount = 0;
+      var cells = progressAssignments.map(function(a){
+        var rv = st.cells[a];
+        if(!rv) return '<td class="hint">—</td>';
+        if(rv.met) metCount++;
+        var text = rv.reviewCount+'/'+required+(rv.met?' ✓':'')+(rv.submitted?'':'（未交）');
+        return '<td style="'+(rv.met?'color:var(--good);font-weight:700':'color:var(--warn);font-weight:700')+'">'+text+'</td>';
+      }).join('');
+      return '<tr>' +
+        '<td class="num">'+(namesHidden ? '●' : escapeHtml(st.seat))+'</td>' +
+        '<td>'+(namesHidden ? '●●●' : escapeHtml(st.name))+'</td>' +
+        cells +
+        '<td class="num strong">'+metCount+'/'+progressAssignments.length+'</td>' +
+      '</tr>';
+    }).join('');
     reviewerSection =
-      '<h2 class="screen-title" style="font-size:1.1rem">評分進度</h2>' +
-      '<div class="card"><p class="hint">上面「篩選作業」選一個特定作業，才能看到那份作業的評分進度——不同作業的評分是分開算的，沒辦法合併顯示。</p></div>';
+      '<p class="hint">每格是「已評件數／需要件數」，✓ 代表這份作業已達標，橘色是還沒評完。點上面的作業名稱可以只看單一作業的詳細進度。</p>' +
+      '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
+        '<th>座號</th><th>姓名</th>' + progressHead + '<th>達標作業</th>' +
+      '</tr></thead><tbody>' + (progressRows || '<tr><td colspan="99" class="hint">目前還沒有人交作品或評分。</td></tr>') + '</tbody></table></div>';
   }
 
   // 用手機原生的橫向捲動來切換作業：整排作業名稱都排在一起，直接用手指左右滑就能捲，
@@ -2299,70 +2356,88 @@ function screenTeacher(){
         '<p class="hint">密語驗證在伺服器端做，其他同學看不到。之後隨時可以在上面兩個清單「新增一行」作業或題目，不會影響已經收到的作品和分數；但如果去修改文字、刪除或搬動「既有」的那幾行，可能會讓已經收到的分數對不上，這種情況才建議避免在評分開始後做。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
-      '<hr class="divider">' +
-      '<p class="hint" style="margin-bottom:8px">資料庫連接</p>' +
+    '</div>' +
+    // 不常用的設定收在可展開的區塊裡，設定頁不會一打開就是一大串
+    '<details class="card settings-fold">' +
+      '<summary>資料庫連接</summary>' +
       connectionSectionHtml() +
-      '<hr class="divider">' +
+    '</details>' +
+    '<details class="card settings-fold">' +
+      '<summary>快速切換身分（測試用，只有你自己看得到）</summary>' +
       '<div class="form">' +
-        '<h3 class="screen-title" style="font-size:0.95rem">快速切換身分（只有你自己看得到）</h3>' +
         '<p class="hint">這組設定只存在你這台裝置，不會同步進資料庫、學生也看不到，方便你一個人測試時快速切換不同身分。</p>' +
         '<label class="toggle-row"><input type="checkbox" id="quickIdentityEnabled" '+(localStorage.getItem('crit.quickIdentityEnabled')==='1'?'checked':'')+'> 在首頁顯示「快速切換身分」</label>' +
         '<label class="field"><span>身分清單（格式跟器材分組一樣：第一行組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="quickIdentityGroups" style="min-height:120px">'+escapeHtml(getQuickIdentityText())+'</textarea></label>' +
         '<button type="button" class="btn btn-accent" id="saveQuickIdentity">儲存（只存在這台裝置）</button>' +
       '</div>' +
-    '</div>';
+    '</details>';
 
   var dangerZoneHtml =
-    '<div class="card" style="border-color:var(--low)">' +
-      '<h2 class="screen-title" style="font-size:1rem;color:var(--low)" id="section-danger">危險區：一鍵還原資料</h2>' +
+    '<details class="card settings-fold" style="border-color:var(--low)">' +
+      '<summary style="color:var(--low)" id="section-danger">危險區：一鍵還原資料</summary>' +
       '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材借用目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
       '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
       '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
-    '</div>';
+    '</details>';
 
   var autoRefreshOn = localStorage.getItem('crit.teacherAutoRefresh')==='1';
+  function h2(text){ return '<h2 class="screen-title" style="font-size:1.1rem">'+text+'</h2>'; }
 
-  return (
-    '<h1 class="screen-title">教師總表</h1>' +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-equipment">器材借用總覽</h2>' +
-    '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>' +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-equipment-return">器材借用報表</h2>' +
-    '<div id="teacherEquipReturnSlot">' + teacherEquipmentReturnReportHtml(equipmentData) + '</div>' +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-attendance">今日點名</h2>' +
-    equipAttendanceHtml(equipmentData) +
-    equipmentAdminHtml() +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-grades">評分總表</h2>' +
-    assignmentSwiperHtml +
-    '<div class="stat-row">' +
-      statTile(rows.length, '件作品') +
-      statTile(rows.reduce(function(sum,r){ return sum + (r.count||0); }, 0), '筆評分') +
-      statTile(rows.filter(function(r){ return r.count>0; }).length, '已有分數') +
-    '</div>' +
-    '<div class="cta-row">' +
-      '<button class="btn btn-accent" id="refreshData">重新整理資料</button>' +
-      '<button class="btn btn-accent" id="toggleNames">'+(namesHidden?'顯示姓名':'隱藏姓名')+'</button>' +
-      '<button class="btn btn-accent" id="exportCsv">匯出 CSV</button>' +
-    '</div>' +
-    '<label class="toggle-row"><input type="checkbox" id="teacherAutoRefreshToggle" '+(autoRefreshOn?'checked':'')+'> 自動重新整理總表（每 20 秒，正在打字時不會被蓋掉）</label>' +
-    '<p class="hint">「份數」欄位如果變成橘色並帶 ⚠，代表這件作品收到的評分還不到老師設定的 '+required+' 份（滑鼠移過去或點欄位標題可以看詳細數字）。</p>' +
-    '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
-      sortTh('座號','grade','seat',teacherSortKey,teacherSortDir) +
-      sortTh('姓名','grade','name',teacherSortKey,teacherSortDir) +
-      '<th>圖片</th>' +
-      sortTh('作業','grade','assignment',teacherSortKey,teacherSortDir) +
-      sortTh('作品名稱','grade','title',teacherSortKey,teacherSortDir,'title-cell') +
-      head +
-      sortTh('總平均','grade','overall',teacherSortKey,teacherSortDir) +
-      sortTh('份數','grade','count',teacherSortKey,teacherSortDir) +
-      sortTh('裝置代碼','grade','device',teacherSortKey,teacherSortDir) +
-    '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>' +
-    reviewerSection +
-    '<h2 class="screen-title" style="font-size:1.1rem">匯出到 Google 試算表</h2>' +
-    reportsExportSectionHtml(teacherView, cfg) +
-    '<h2 class="screen-title" style="font-size:1.1rem" id="section-settings">教師設定</h2>' +
-    configHtml +
-    dangerZoneHtml
-  );
+  // 一次只畫目前這一頁的內容（選單在最上面切換），不是把所有功能塞在同一長頁裡。
+  var bodies = {
+    attendance: function(){
+      return equipAttendanceHtml(equipmentData);
+    },
+    equipment: function(){
+      return '<div id="teacherEquipOverviewSlot">' + teacherEquipmentOverviewHtml(equipmentData) + '</div>';
+    },
+    'return': function(){
+      return '<div id="teacherEquipReturnSlot">' + teacherEquipmentReturnReportHtml(equipmentData) + '</div>';
+    },
+    grades: function(){
+      return (
+        assignmentSwiperHtml +
+        '<div class="stat-row">' +
+          statTile(rows.length, '件作品') +
+          statTile(rows.reduce(function(sum,r){ return sum + (r.count||0); }, 0), '筆評分') +
+          statTile(rows.filter(function(r){ return r.count>0; }).length, '已有分數') +
+        '</div>' +
+        '<div class="cta-row">' +
+          '<button class="btn btn-accent" id="refreshData">重新整理資料</button>' +
+          '<button class="btn btn-accent" id="toggleNames">'+(namesHidden?'顯示姓名':'隱藏姓名')+'</button>' +
+          '<button class="btn btn-accent" id="exportCsv">匯出 CSV</button>' +
+        '</div>' +
+        '<label class="toggle-row"><input type="checkbox" id="teacherAutoRefreshToggle" '+(autoRefreshOn?'checked':'')+'> 自動重新整理總表（每 20 秒，正在打字時不會被蓋掉）</label>' +
+        '<p class="hint">「份數」欄位如果變成橘色並帶 ⚠，代表這件作品收到的評分還不到老師設定的 '+required+' 份（滑鼠移過去或點欄位標題可以看詳細數字）。</p>' +
+        '<div class="table-wrap card"><table class="grade-table"><thead><tr>' +
+          sortTh('座號','grade','seat',teacherSortKey,teacherSortDir) +
+          sortTh('姓名','grade','name',teacherSortKey,teacherSortDir) +
+          '<th>圖片</th>' +
+          sortTh('作業','grade','assignment',teacherSortKey,teacherSortDir) +
+          sortTh('作品名稱','grade','title',teacherSortKey,teacherSortDir,'title-cell') +
+          head +
+          sortTh('總平均','grade','overall',teacherSortKey,teacherSortDir) +
+          sortTh('份數','grade','count',teacherSortKey,teacherSortDir) +
+          sortTh('裝置代碼','grade','device',teacherSortKey,teacherSortDir) +
+        '</tr></thead><tbody>' + (tableRows || '<tr><td colspan="99" class="hint">目前還沒有作品。</td></tr>') + '</tbody></table></div>'
+      );
+    },
+    progress: function(){
+      return assignmentSwiperHtml + reviewerSection;
+    },
+    'export': function(){
+      return reportsExportSectionHtml(teacherView, cfg);
+    },
+    accounts: function(){
+      return accountsDataSectionHtml();
+    },
+    settings: function(){
+      return h2('教師設定') + configHtml + equipmentAdminHtml() + dangerZoneHtml;
+    }
+  };
+  var tabLabel = '';
+  TEACHER_TABS.forEach(function(t){ if(t.id===teacherTab) tabLabel = t.label; });
+  return '<h1 class="screen-title">'+tabLabel+'</h1>' + bodies[teacherTab]();
 }
 
 function screenHtml(role){
@@ -2390,10 +2465,12 @@ function navHtml(role){
         '</div>' +
         '<div id="teacherEquipMiniSlot">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
       '</div>' +
+      '<nav class="tabs tabs-scroll">' +
+        TEACHER_TABS.map(function(t){
+          return '<button type="button" class="navbtn'+(teacherTab===t.id?' active':'')+'" data-teacher-tab="'+t.id+'">'+t.label+'</button>';
+        }).join('') +
+      '</nav>' +
       '<nav class="tabs" style="flex-wrap:wrap">' +
-        '<a href="#section-equipment" class="navbtn">器材借用</a>' +
-        '<a href="#section-attendance" class="navbtn">點名</a>' +
-        '<a href="#section-equipment-return" class="navbtn">器材歸還</a>' +
         '<span id="teacherHeaderAssignmentSlot" style="display:contents">' + teacherHeaderAssignmentSwitcherHtml() + '</span>' +
         '<span id="teacherEquipControlsSlot" style="display:contents">' + equipStartPauseButtonsHtml(equipmentData) + '</span>' +
       '</nav>' +
@@ -2419,7 +2496,14 @@ function render(){
     submitOverlayHtml();
   document.getElementById('app').innerHTML = html;
   attachHandlers();
+  centerActiveTeacherTab();
   scheduleBackgroundPreload();
+}
+/** 每次重畫選單的捲動位置都會歸零，手機上選單列要橫向滑，所以把「目前這個分頁」捲到選單列中間，才看得到自己在哪。 */
+function centerActiveTeacherTab(){
+  var nav = document.querySelector('.tabs-scroll');
+  var active = nav && nav.querySelector('.navbtn.active');
+  if(active) nav.scrollLeft = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2;
 }
 
 // ---------- 資料載入 ----------
@@ -3071,6 +3155,14 @@ function attachHandlers(){
     }
     var chipBtn = e.target.closest('[data-assignment-chip]');
     if(chipBtn){ teacherAssignmentFilter = chipBtn.getAttribute('data-assignment-chip'); render(); return; }
+    var tabBtn = e.target.closest('[data-teacher-tab]');
+    if(tabBtn){
+      teacherTab = tabBtn.getAttribute('data-teacher-tab');
+      localStorage.setItem('crit.teacherTab', teacherTab);
+      render();
+      window.scrollTo(0, 0);
+      return;
+    }
     if(e.target.closest('#exportCsv')){ handleExportCsv(); return; }
     if(e.target.closest('#refreshData')){ loadTeacherView(); return; }
     if(e.target.closest('#saveConn')){ handleSaveConnection(document.getElementById('app')); return; }
