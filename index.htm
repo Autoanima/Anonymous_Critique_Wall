@@ -320,9 +320,9 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .gallery-assignment-chip{color:#fff;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap;}
 @media (min-width:600px){ .gallery-grid{column-count:3;} }
 
-.slideshow-overlay{position:fixed;inset:0;background:rgba(10,12,11,0.96);z-index:50;--slide-scale:1;}
+.slideshow-overlay{touch-action:none;overscroll-behavior:contain;position:fixed;inset:0;background:rgba(10,12,11,0.96);z-index:50;--slide-scale:1;}
 .slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;z-index:3;}
-.slide-body{position:absolute;top:10px;left:10px;right:10px;bottom:10px;display:flex;gap:16px;align-items:stretch;min-height:0;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:pan-y;}
+.slide-body{position:absolute;top:10px;left:10px;right:10px;bottom:10px;display:flex;gap:16px;align-items:stretch;min-height:0;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none;}
 .slide-stage{flex:3;min-width:0;display:flex;align-items:center;justify-content:center;}
 .slide-stage img{width:100%;height:100%;border-radius:6px;object-fit:contain;}
 .slide-stage iframe{width:100%;height:100%;border:0;border-radius:6px;background:#fff;}
@@ -336,7 +336,7 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 /* 老師才看得到的加分列（教師作品牆播放時）：按一下直接加分，不會觸發換張 */
 .slide-bonus{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;font-size:0.8em;color:rgba(255,255,255,0.85);}
 .slide-bonus .btn{flex:none;min-width:40px;padding:4px 8px;font-size:1em;line-height:1.2;touch-action:manipulation;}
-.slide-reviews{position:absolute;top:48px;left:8px;right:8px;max-height:calc(100% - 128px);overflow-y:auto;z-index:4;background:rgba(14,18,17,0.97);border:1px solid var(--line);border-radius:12px;padding:10px 12px;color:#fff;font-size:0.9rem;box-shadow:0 8px 30px rgba(0,0,0,0.55);}
+.slide-reviews{touch-action:pan-y;overscroll-behavior:contain;position:absolute;top:48px;left:8px;right:8px;max-height:calc(100% - 128px);overflow-y:auto;z-index:4;background:rgba(14,18,17,0.97);border:1px solid var(--line);border-radius:12px;padding:10px 12px;color:#fff;font-size:0.9rem;box-shadow:0 8px 30px rgba(0,0,0,0.55);}
 .slide-reviews-head{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
 .slide-reviews-head b{flex:1;}
 .slide-reviews-head .btn{flex:none;padding:4px 12px;}
@@ -576,6 +576,7 @@ function enterTeacherGalleryMode(){
 function leaveTeacherGalleryMode(){
   if(!teacherGalleryActive) return;
   teacherGalleryActive = false;
+  slideReviewsOpen = false; workReviewsCache = {}; // 評分明細是老師專用，離開教師作品牆就收起來、清掉暫存
   galleryData = teacherGalleryBackup.data;
   galleryShowNames = teacherGalleryBackup.names;
   galleryShowScores = teacherGalleryBackup.scores;
@@ -2025,20 +2026,51 @@ document.addEventListener('wheel', function(e){
  */
 var slideSwipeStart = null;
 var lastSwipeAt = 0;
+/**
+ * 播放展示的手勢：左右滑＝上一張／下一張；
+ * 教師模式另外支援上下滑開關評分明細——往上滑打開、往下滑關閉
+ * （明細面板開著的時候，面板自己捲到最上面再往下滑也會關閉）。
+ */
 document.addEventListener('touchstart', function(e){
-  if(slideshowIndex==null || !e.target.closest || !e.target.closest('.slide-body') || e.touches.length !== 1){ slideSwipeStart = null; return; }
-  slideSwipeStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  // 整個播放畫面都吃手勢（不只照片區），按鈕、下拉選單除外；面板自己另外處理
+  var inOverlay = e.target.closest && e.target.closest('.slideshow-overlay');
+  var inControl = e.target.closest && e.target.closest('button, select, input, a');
+  var panel = e.target.closest && e.target.closest('.slide-reviews');
+  if(slideshowIndex==null || !(inOverlay && (!inControl || panel)) || e.touches.length !== 1){ slideSwipeStart = null; return; }
+  if(inControl && panel) { /* 面板裡的按鈕也當成面板手勢的起點，不影響點擊 */ }
+  slideSwipeStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, panel: panel ? { el: panel, top: panel.scrollTop } : null };
 }, { passive: true });
 document.addEventListener('touchend', function(e){
   if(!slideSwipeStart || slideshowIndex==null) return;
   var t = e.changedTouches[0];
-  var dx = t.clientX - slideSwipeStart.x, dy = t.clientY - slideSwipeStart.y;
+  var start = slideSwipeStart;
+  var dx = t.clientX - start.x, dy = t.clientY - start.y;
   slideSwipeStart = null;
-  if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5){
+  var horizontal = Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5;
+  var vertical = Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.5;
+  if(start.panel){
+    // 在明細面板上：只處理「面板已經捲到最上面又往下滑」＝關閉
+    if(vertical && dy > 0 && start.panel.top === 0 && start.panel.el.scrollTop === 0){ lastSwipeAt = Date.now(); setReviewsPanel(false); }
+    return;
+  }
+  if(horizontal){
     lastSwipeAt = Date.now();
     slideAdvance(dx < 0 ? 1 : -1);
+  } else if(vertical && teacherGalleryActive){
+    lastSwipeAt = Date.now();
+    setReviewsPanel(dy < 0); // 往上滑＝打開，往下滑＝關閉
   }
 }, { passive: true });
+/** 開／關評分明細面板（按鈕和上下滑手勢共用）。只更新面板，不重畫整個播放視窗。 */
+function setReviewsPanel(open){
+  if(!teacherGalleryActive || slideshowIndex == null || slideReviewsOpen === open) return;
+  slideReviewsOpen = open;
+  if(open && slideshowPlaying){ // 看明細時先暫停自動播放（只改按鈕文字）
+    slideshowPlaying = false; stopSlideTimer();
+    var ppb = document.getElementById('slidePlayPause'); if(ppb) ppb.textContent = '播放';
+  }
+  updateReviewsPanelDom();
+}
 function handleSlideBodyTap(e){
   if(Date.now() - lastSwipeAt < 450) return;
   var rect = e.target.closest('.slide-body').getBoundingClientRect();
@@ -4016,15 +4048,7 @@ function attachHandlers(){
     }
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; slideReviewsOpen = false; workReviewsCache = {}; exitFullscreenIfActive(); render(); return; }
     var rvBtn = e.target.closest('[data-reviews-toggle]');
-    if(rvBtn && slideshowIndex != null){
-      slideReviewsOpen = !slideReviewsOpen;
-      if(slideReviewsOpen && slideshowPlaying){ // 看明細時先暫停自動播放（只改按鈕文字，不重畫播放視窗）
-        slideshowPlaying = false; stopSlideTimer();
-        var ppb = document.getElementById('slidePlayPause'); if(ppb) ppb.textContent = '播放';
-      }
-      updateReviewsPanelDom();
-      return;
-    }
+    if(rvBtn && slideshowIndex != null){ setReviewsPanel(!slideReviewsOpen); return; }
     var attBtn = e.target.closest('[data-att-bonus]');
     if(attBtn){ handleAttendanceBonus(attBtn.getAttribute('data-seat'), attBtn.getAttribute('data-name'), parseInt(attBtn.getAttribute('data-att-bonus'),10)); return; }
     var honorsChip = e.target.closest('[data-honors-assignment]');
