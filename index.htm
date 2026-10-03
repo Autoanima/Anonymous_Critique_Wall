@@ -269,12 +269,15 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .slide-stage{flex:3;min-width:0;display:flex;align-items:center;justify-content:center;}
 .slide-stage img{width:100%;height:100%;border-radius:6px;object-fit:contain;}
 .slide-stage iframe{width:100%;height:100%;border:0;border-radius:6px;background:#fff;}
-.slide-radar{flex:1;min-width:220px;max-width:380px;display:flex;align-items:center;justify-content:center;}
+.slide-radar{flex:1;min-width:220px;max-width:380px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(8px * var(--slide-scale));}
+/* 雷達圖正下方放作業名稱、座號姓名、平均分數，一起置中 */
+.slide-radar-chart{flex:0 1 auto;min-height:0;width:100%;display:flex;align-items:center;justify-content:center;}
+.slide-info{flex:none;width:100%;color:#fff;display:flex;flex-direction:column;align-items:center;gap:calc(6px * var(--slide-scale));text-align:center;font-size:calc(1.2rem * var(--slide-scale));}
+.slide-info-line{display:flex;gap:0.5em;align-items:center;justify-content:center;flex-wrap:wrap;}
+.slide-info .gallery-assignment-chip{white-space:normal;line-height:1.3;font-size:0.85em;padding:0.1em 0.8em;max-width:100%;overflow-wrap:anywhere;}
+.slide-info .gallery-score{font-size:1em;padding:0.1em 0.6em;}
 /* 所有資訊、控制項都用絕對定位疊在畫面上，不佔版面空間，讓作品圖片盡量放到最大。 */
-.slide-meta-overlay{position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;align-items:flex-end;gap:calc(6px * var(--slide-scale));z-index:2;pointer-events:none;}
-.slide-meta{color:#fff;display:flex;gap:calc(8px * var(--slide-scale));align-items:center;font-size:calc(1.8rem * var(--slide-scale));flex-wrap:wrap;justify-content:flex-end;}
-.slide-meta .code{font-family:'JetBrains Mono',monospace;background:var(--accent-soft);color:var(--accent-strong);padding:0.15em 0.6em;border-radius:0.4em;font-weight:700;}
-.slide-meta .gallery-score{font-size:1em;padding:0.15em 0.6em;}
+.slide-meta-overlay{position:absolute;right:16px;bottom:16px;z-index:2;pointer-events:none;}
 .slide-pos{color:rgba(255,255,255,0.7);font-family:'JetBrains Mono',monospace;font-size:calc(1.3rem * var(--slide-scale));}
 .slide-font-controls{position:absolute;left:16px;bottom:14px;display:flex;flex-direction:row;align-items:center;gap:8px;z-index:2;}
 .slide-font-controls .btn{flex:none;width:48px;padding:10px 0;}
@@ -284,15 +287,15 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 @media (max-width:800px) and (min-height:521px){
   /* 手機直拿（橫放的矮螢幕走下面另一組規則）：上面留給字級按鈕和關閉鍵，下面留兩排（作品資訊＋控制列），中間才是圖片和雷達圖，
      這幾塊各佔各的位置，不會再疊在一起。 */
-  .slide-body{flex-direction:column;top:56px;bottom:112px;}
+  .slide-body{flex-direction:column;top:56px;bottom:88px;}
   /* min-height:0 很重要：沒有的話，直式照片（比較高的圖）會把圖片區撐得比分到的空間還高，
      把雷達圖擠到下面去壓住作品資訊和控制列。flex-basis 設 0 讓兩塊純粹照比例分剩下的空間。 */
   .slide-stage{flex:1.3 1 0;min-height:0;overflow:hidden;}
-  .slide-radar{flex:1 1 0;min-width:0;min-height:0;max-height:34vh;}
+  .slide-radar{flex:1 1 0;min-width:0;min-height:0;max-height:42vh;gap:4px;}
+  .slide-info{font-size:1.05rem;gap:3px;}
   .slide-font-controls{left:8px;top:8px;bottom:auto;transform:none;flex-direction:row;}
   .slide-font-controls .btn{width:38px;padding:6px 0;}
-  .slide-meta-overlay{left:10px;right:10px;bottom:58px;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;}
-  .slide-meta{font-size:1.05rem;gap:6px;flex-wrap:nowrap;justify-content:flex-start;min-width:0;}
+  .slide-meta-overlay{left:10px;right:10px;bottom:58px;text-align:right;}
   .slide-pos{font-size:0.8rem;white-space:nowrap;flex:none;}
   .slide-controls-bottom{left:10px;right:10px;bottom:8px;transform:none;justify-content:center;gap:8px;}
   .slide-controls-bottom .btn{flex:none;white-space:nowrap;padding:9px 12px;font-size:0.85rem;}
@@ -301,11 +304,11 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 /* 手機橫放：螢幕很矮，底下留一條放字級按鈕、作品資訊和控制列，圖片和雷達圖用上面剩下的空間 */
 @media (orientation:landscape) and (max-height:520px){
   .slide-body{top:8px;bottom:58px;}
-  .slide-meta{font-size:1.05rem;gap:6px;flex-wrap:nowrap;}
+  .slide-info{font-size:1.05rem;gap:3px;}
   .slide-pos{font-size:0.8rem;white-space:nowrap;}
   .slide-controls-bottom .btn{flex:none;white-space:nowrap;padding:8px 12px;font-size:0.85rem;}
   .slide-font-controls{bottom:10px;}
-  .slide-meta-overlay{bottom:12px;right:12px;flex-direction:row;align-items:center;gap:10px;}
+  .slide-meta-overlay{bottom:12px;right:12px;}
   /* 底下一條由左到右排：字級按鈕｜控制列｜作品資訊，各佔各的，不再疊在一起 */
   .slide-controls-bottom{bottom:10px;left:170px;transform:none;}
   .slide-radar{flex:1.2;min-width:300px;max-width:420px;}
@@ -314,7 +317,6 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 /* 更窄的橫放（例如 iPhone SE）放不下，就先藏起「作業篩選」和作業標籤，播放／上下張優先 */
 @media (orientation:landscape) and (max-height:520px) and (max-width:760px){
   .slide-assignment-select{display:none;}
-  .slide-meta .gallery-assignment-chip{display:none;}
   .slide-radar{min-width:240px;}
 }
 
@@ -1476,7 +1478,13 @@ function slideshowHtml(){
       '<button type="button" class="slide-close" id="slideClose" aria-label="關閉">&times;</button>' +
       '<div class="slide-body">' +
         '<div class="slide-stage">'+galleryImageHtml(r)+'</div>' +
-        '<div class="slide-radar">'+radarBox+'</div>' +
+        '<div class="slide-radar">' +
+          '<div class="slide-radar-chart">'+radarBox+'</div>' +
+          '<div class="slide-info">' +
+            '<span class="gallery-assignment-chip" style="background:'+aColor+';color:'+aText+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
+            '<div class="slide-info-line">'+galleryMetaHtml(r, scoreVal)+'</div>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="slide-font-controls">' +
         '<button type="button" class="btn btn-accent" data-slide-font="1">A＋</button>' +
@@ -1484,10 +1492,6 @@ function slideshowHtml(){
         '<button type="button" class="btn btn-accent" data-slide-font="-1">A－</button>' +
       '</div>' +
       '<div class="slide-meta-overlay">' +
-        '<div class="slide-meta">' +
-          '<span class="gallery-assignment-chip" style="background:'+aColor+';color:'+aText+'">'+escapeHtml(r.assignment||'未分類')+'</span>' +
-          galleryMetaHtml(r, scoreVal) +
-        '</div>' +
         '<span class="slide-pos">'+(idx+1)+' / '+rows.length+'</span>' +
       '</div>' +
       '<div class="slide-controls-bottom">' +
