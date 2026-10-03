@@ -1208,7 +1208,12 @@ function reviewQuotaNoticeHtml(required){
   var text = required
     ? ('每一項作業都要完成至少 <strong>'+required+' 件</strong>評分，沒有完成的話總分會被扣分。')
     : '每一項作業都要完成至少老師要求的評分件數，沒有完成的話總分會被扣分。';
-  return '<div class="card" style="border-color:var(--warn)"><p class="hint" style="color:var(--warn)">⚠️ '+text+'</p></div>';
+  var warn = (reviewView && reviewView.warning) || (myReviewProgress && myReviewProgress.warning);
+  var flagged = warn
+    ? '<div class="card" style="border-color:#b3261e;background:rgba(179,38,30,0.08)"><p style="color:#b3261e;font-weight:700;margin:0 0 4px">⚠️ 老師提醒：請認真評分</p>' +
+      '<p class="hint" style="color:#b3261e;margin:0">老師發現你有評分和其他同學差距過大、明顯不合理的紀錄（已登記在老師的表單裡，共 '+(warn.count||1)+' 件作品）。請仔細看作品、照題目的標準評分，之後如果再出現不合理的評分，會繼續被記錄。</p></div>'
+    : '';
+  return flagged + '<div class="card" style="border-color:var(--warn)"><p class="hint" style="color:var(--warn)">⚠️ '+text+'</p></div>';
 }
 /** 這位評分者在某份作業已經評了幾件，配合 myReviewProgress 資料查（還沒載入就回傳 null）。 */
 function myProgressFor(a){
@@ -1525,7 +1530,8 @@ function slideBonusHtml(r){
   var ret = r.returned
     ? '<button type="button" class="btn btn-accent" data-return="undo">撤銷退回</button>'
     : '<button type="button" class="btn btn-return" data-return="1">退回</button>';
-  return '<div class="slide-bonus"><span>老師加分</span>'+btns+ret+'</div>' +
+  var flag = '<button type="button" class="btn btn-accent" data-flag="1">評分異常</button>';
+  return '<div class="slide-bonus"><span>老師加分</span>'+btns+ret+flag+'</div>' +
     (r.returned ? '<div class="slide-return-reason">退回原因：'+escapeHtml(r.returned.reason||'')+'</div>' : '');
 }
 /** 有加分的作品，在分數旁邊註明原本幾分、加了幾分（只有教師模式看得到）。 */
@@ -1562,6 +1568,53 @@ function applyBonusLocal(workCode, bonus){ applyWorkLocal(workCode, { bonus: bon
 /**
  * 退回（或撤銷退回）目前這件作品：退回要輸入原因，總平均扣 0.1 分，原因和時間由伺服器記在試算表「退回紀錄」分頁。
  */
+/**
+ * 老師覺得這件作品被評的分數不合理：把「評分和其他人差距過大」或「全部評分者」登記到試算表的「評分異常紀錄」分頁，
+ * 被登記的同學之後的評分畫面會看到「請認真評分」的提醒。先列出名單讓老師確認，確認後才真的登記。
+ */
+function handleSlideFlag(){
+  if(!teacherGalleryActive || slideshowIndex == null) return;
+  var rows = sortedGalleryRows();
+  if(!rows.length) return;
+  var r = rows[((slideshowIndex % rows.length) + rows.length) % rows.length];
+  var pass = teacherAuthPasscode();
+  if(!pass){ alert('教師密語已失效，請先關閉播放、重新登入教師模式再操作。'); return; }
+  var who = (r.studentSeat ? r.studentSeat+'號 ' : '') + (r.studentName || r.workCode);
+  var ans = prompt('「'+who+'」這件作品收到 '+(r.count||0)+' 份評分。\n\n評分不合理的同學要怎麼登記？\n1＝登記「評分和其他人差距過大」的同學\n2＝登記「這件作品全部的評分同學」\n3＝撤銷這件作品的異常登記\n\n請輸入 1、2 或 3：', '1');
+  if(ans === null) return;
+  var mode = { '1':'outliers', '2':'all', '3':'clear' }[String(ans).trim()];
+  if(!mode){ alert('請輸入 1、2 或 3。'); return; }
+  var gap = 1.5;
+  if(mode === 'outliers'){
+    var g = prompt('某位同學給這件作品的平均分，和其他同學給的平均分相差幾分以上就登記？\n（5 分制，建議 1.5；越小越嚴格）', '1.5');
+    if(g === null) return;
+    gap = parseFloat(g);
+    if(isNaN(gap) || gap <= 0){ alert('請輸入大於 0 的數字。'); return; }
+  }
+  if(slideshowPlaying){ slideshowPlaying = false; stopSlideTimer(); }
+  var base = { passcode: pass, workCode: r.workCode, mode: mode, gap: gap };
+  function line(c){
+    return (c.seat ? c.seat+'號 ' : '') + c.name + (c.mean != null ? '（他給 '+c.mean.toFixed(2)+'，其他人 '+(c.othersMean==null?'—':c.othersMean.toFixed(2))+'，差 '+(c.gap==null?'—':(c.gap>0?'+':'')+c.gap.toFixed(2))+'）' : '');
+  }
+  function failText(res){
+    if(res && res.error === 'too_few') return '這件作品只有 '+res.count+' 份評分，少於 3 份沒辦法比較差距。要登記的話可以改選 2（全部評分同學）。';
+    if(res && res.error === 'unauthorized') return '教師密語不對。';
+    return '伺服器沒有處理成功（請確認 Code.gs 已經重新部署最新版）。';
+  }
+  apiGet('teacherFlagReviews', Object.assign({ dryRun: true }, base)).then(function(res){
+    if(!res || !res.ok){ alert(failText(res)); return; }
+    var cs = res.candidates || [];
+    if(!cs.length){ alert(mode === 'clear' ? '這件作品目前沒有異常登記。' : '沒有同學的差距達到 '+gap+' 分（這件作品共 '+res.reviewerCount+' 份評分）。'); return; }
+    var fresh = cs.filter(function(c){ return !c.already; });
+    if(mode !== 'clear' && !fresh.length){ alert('這些同學在這件作品都已經登記過了：\n\n' + cs.map(line).join('\n')); return; }
+    var head = mode === 'clear' ? '要撤銷以下 '+cs.length+' 位同學在這件作品的異常登記嗎？' : '要登記以下 '+fresh.length+' 位同學嗎？\n（會寫進試算表「評分異常紀錄」，並在他們的評分畫面顯示提醒）';
+    if(!confirm(head + '\n\n' + (mode === 'clear' ? cs : fresh).map(line).join('\n'))) return;
+    return apiGet('teacherFlagReviews', base).then(function(done){
+      if(!done || !done.ok){ alert(failText(done)); return; }
+      alert(mode === 'clear' ? '已撤銷 '+done.cleared+' 位同學的登記。' : '已登記 '+done.added+' 位同學。可以到試算表的「評分異常紀錄」分頁查看。');
+    });
+  }).catch(function(e){ alert('操作沒有成功：' + e.message); });
+}
 function handleSlideReturn(mode){
   if(!teacherGalleryActive || slideshowIndex == null) return;
   var rows = sortedGalleryRows();
@@ -3579,6 +3632,8 @@ function attachHandlers(){
       slideshowPlaying = false; enterFullscreen(); render(); return;
     }
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; exitFullscreenIfActive(); render(); return; }
+    var flagBtn = e.target.closest('[data-flag]');
+    if(flagBtn && slideshowIndex != null){ handleSlideFlag(); return; }
     var returnBtn = e.target.closest('[data-return]');
     if(returnBtn && slideshowIndex != null){ handleSlideReturn(returnBtn.getAttribute('data-return')); return; }
     var bonusBtn = e.target.closest('[data-bonus]');
