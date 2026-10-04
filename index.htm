@@ -238,6 +238,7 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
   .att-bonus .btn{padding:6px 8px;min-width:44px;font-size:0.9rem;}
   .att-bonus .award-tag{font-size:0.7rem;padding:0 5px;}
 }
+.brand-class{display:inline-block;max-width:8em;margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-size:0.72em;font-weight:500;color:var(--ink-soft);}
 .assignment-chip-scroll{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;padding:2px 14px;}
 .assignment-chip-scroll::-webkit-scrollbar{height:4px;}
 .assignment-chip{flex:none;scroll-snap-align:center;background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:9px 16px;font-size:0.9rem;font-weight:600;cursor:pointer;white-space:nowrap;}
@@ -465,6 +466,7 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 'use strict';
 
 var TITLE = '匿名評圖牆';
+function classNameText(){ return (homeStats && homeStats.className) ? String(homeStats.className) : ''; }
 var MAX_ORIGINAL_BYTES = 15 * 1024 * 1024; // 15MB 原始檔案上限
 var RESIZE_MAX_DIM = 1600;
 var RESIZE_QUALITY = 0.82;
@@ -473,7 +475,27 @@ var RESIZE_QUALITY = 0.82;
 var DEFAULT_QUICK_IDENTITY_TEXT = '第一組\n01 陳大文\n02 林小華\n03 黃美玲\n\n第二組\n04 張志豪\n05 吳佳蓉\n06 劉建宏';
 
 // ---------- API 連線位址（不用改原始碼，改在「連接設定」畫面貼上即可） ----------
+/**
+ * 身分、登入狀態、教師密語記憶這些「屬於某一個班」的資料，存的時候在 key 後面加上這個班的後端網址雜湊，
+ * 同一支手機打開不同班級的連結，各班各記各的，不會把 A 班的身分帶到 B 班。
+ * （作品清單快取 swr 本來就有分班；裝置代碼、字級、目前分頁這些跟班級無關的設定不分。）
+ */
+function sk(key){ return key + '@' + hashString(apiUrl || ''); }
+/** 舊版的身分資料沒有分班：第一次執行新版時，全部歸給「這支手機原本連的那個班」，其他班一律從頭開始。 */
+function migrateScopedKeys(oldUrl){
+  try{
+    if(localStorage.getItem('crit.scopedV1')) return;
+    localStorage.setItem('crit.scopedV1', '1');
+    if(!oldUrl) return;
+    var suffix = '@' + hashString(oldUrl);
+    ['crit.myName','crit.mySeat','crit.token','crit.tokenSeat','crit.teacherAuthSaved','crit.quickIdentityGroups','crit.quickIdentityEnabled','crit.simEquip'].forEach(function(k){
+      var v = localStorage.getItem(k);
+      if(v != null){ localStorage.setItem(k + suffix, v); localStorage.removeItem(k); }
+    });
+  }catch(e){}
+}
 function getApiUrl(){
+  migrateScopedKeys(localStorage.getItem('crit.apiUrl') || ''); // 一定要在套用網址參數 ?api= 之前，不然會把舊身分歸給新的那個班
   try{
     var params = new URLSearchParams(location.search);
     var fromQuery = params.get('api');
@@ -689,18 +711,18 @@ function uid(prefix){ return prefix + Date.now().toString(36) + Math.random().to
 
 function getRole(){ return localStorage.getItem('crit.role') || 'home'; }
 function setRole(r){ localStorage.setItem('crit.role', r); }
-function getMyName(){ return localStorage.getItem('crit.myName') || ''; }
-function setMyName(n){ localStorage.setItem('crit.myName', n); }
-function getMySeat(){ return cleanSeat(localStorage.getItem('crit.mySeat') || ''); }
-function setMySeat(s){ localStorage.setItem('crit.mySeat', cleanSeat(s)); }
+function getMyName(){ return localStorage.getItem(sk('crit.myName')) || ''; }
+function setMyName(n){ localStorage.setItem(sk('crit.myName'), n); }
+function getMySeat(){ return cleanSeat(localStorage.getItem(sk('crit.mySeat')) || ''); }
+function setMySeat(s){ localStorage.setItem(sk('crit.mySeat'), cleanSeat(s)); }
 // 登入 token：登入成功後伺服器發的，綁定座號，換座號就失效。用班級名單登入的情況下，沒有 token 就視為還沒登入。
 function getToken(){
-  var t = localStorage.getItem('crit.token');
+  var t = localStorage.getItem(sk('crit.token'));
   if(!t) return '';
-  return localStorage.getItem('crit.tokenSeat')===normSeat(getMySeat()) ? t : '';
+  return localStorage.getItem(sk('crit.tokenSeat'))===normSeat(getMySeat()) ? t : '';
 }
-function setToken(t){ localStorage.setItem('crit.token', t); localStorage.setItem('crit.tokenSeat', normSeat(getMySeat())); }
-function clearToken(){ localStorage.removeItem('crit.token'); localStorage.removeItem('crit.tokenSeat'); }
+function setToken(t){ localStorage.setItem(sk('crit.token'), t); localStorage.setItem(sk('crit.tokenSeat'), normSeat(getMySeat())); }
+function clearToken(){ localStorage.removeItem(sk('crit.token')); localStorage.removeItem(sk('crit.tokenSeat')); }
 var accountsSupported = true; // 後端還沒更新到有密碼功能的版本時會變 false，退回不用密碼的舊流程
 function authRequired(){ return accountsSupported && rosterReady(); } // 有班級名單的時候才要求登入密碼；沒名單（或名單載入失敗）退回舊的自己打姓名
 function hasIdentity(){ return !!(getMySeat() && getMyName()) && (!authRequired() || !!getToken()); }
@@ -734,26 +756,26 @@ function getDeviceId(){
 // 換了密語或密語不對時會清掉。注意這會把密語存在這台裝置上，所以請不要在別人會用到的裝置上登入教師模式。
 var TEACHER_AUTH_HOURS = 12;
 function teacherAuthPasscode(){
-  var s = sessionStorage.getItem('crit.teacherAuth');
+  var s = sessionStorage.getItem(sk('crit.teacherAuth'));
   if(s) return s;
   try{
-    var saved = JSON.parse(localStorage.getItem('crit.teacherAuthSaved') || 'null');
+    var saved = JSON.parse(localStorage.getItem(sk('crit.teacherAuthSaved')) || 'null');
     if(saved && saved.p && Date.now() - saved.t < TEACHER_AUTH_HOURS * 3600000){
-      sessionStorage.setItem('crit.teacherAuth', saved.p);
+      sessionStorage.setItem(sk('crit.teacherAuth'), saved.p);
       return saved.p;
     }
   }catch(e){}
   return '';
 }
 function setTeacherAuthPasscode(p){
-  sessionStorage.setItem('crit.teacherAuth', p);
-  try{ localStorage.setItem('crit.teacherAuthSaved', JSON.stringify({ p:p, t:Date.now() })); }catch(e){}
+  sessionStorage.setItem(sk('crit.teacherAuth'), p);
+  try{ localStorage.setItem(sk('crit.teacherAuthSaved'), JSON.stringify({ p:p, t:Date.now() })); }catch(e){}
 }
 function clearTeacherAuth(){
-  sessionStorage.removeItem('crit.teacherAuth');
-  try{ localStorage.removeItem('crit.teacherAuthSaved'); }catch(e){}
+  sessionStorage.removeItem(sk('crit.teacherAuth'));
+  try{ localStorage.removeItem(sk('crit.teacherAuthSaved')); }catch(e){}
 }
-function getExtraTarget(){ var v = sessionStorage.getItem('crit.extraTarget'); return v ? parseInt(v,10) : 0; }
+function getExtraTarget(){ var v = sessionStorage.getItem(sk('crit.extraTarget')); return v ? parseInt(v,10) : 0; }
 
 var toastMsg = null;
 function setToast(kind, text){ toastMsg = {kind:kind, text:text}; }
@@ -1092,11 +1114,11 @@ function identityBadgeHtml(){
  * 而且開關跟清單都只存在這台裝置的 localStorage，不會透過資料庫同步給學生看到。
  */
 function getQuickIdentityText(){
-  var v = localStorage.getItem('crit.quickIdentityGroups');
+  var v = localStorage.getItem(sk('crit.quickIdentityGroups'));
   return v == null ? DEFAULT_QUICK_IDENTITY_TEXT : v;
 }
 function quickIdentitySwitcherHtml(){
-  if(localStorage.getItem('crit.quickIdentityEnabled') !== '1') return '';
+  if(localStorage.getItem(sk('crit.quickIdentityEnabled')) !== '1') return '';
   var groups = parseGroupsText(getQuickIdentityText());
   if(!groups.length) return '';
   return (
@@ -2487,9 +2509,9 @@ function equipMiniBarHtml(){
 // 只存在這支裝置（localStorage），完全不會送到伺服器，也不會出現在真正各組的資料裡。
 var SIM_GROUP_NAME = '模擬組';
 function getSimEquip(){
-  try{ return JSON.parse(localStorage.getItem('crit.simEquip') || 'null') || {}; }catch(e){ return {}; }
+  try{ return JSON.parse(localStorage.getItem(sk('crit.simEquip')) || 'null') || {}; }catch(e){ return {}; }
 }
-function saveSimEquip(s){ try{ localStorage.setItem('crit.simEquip', JSON.stringify(s)); }catch(e){} }
+function saveSimEquip(s){ try{ localStorage.setItem(sk('crit.simEquip'), JSON.stringify(s)); }catch(e){} }
 function blankEquipStatus(){ return { reported:false, reportedBySeat:'', reportedByName:'', reportedAt:null, confirmed:false }; }
 // 模擬組除了老師自己，再加 4 位模擬同學（只負責佔輪值順序、讓畫面像一組真的 5 個人，不會自己動作）。
 var SIM_MATES = [
@@ -3320,6 +3342,7 @@ function screenTeacher(){
         '<label class="field"><span>作業清單（每行一個作業名稱，交作品／作品牆／評分的選單都會用這個）</span><textarea id="cfg_assignments">'+escapeHtml(assignments.join('\n'))+'</textarea></label>' +
         '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
         '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
+        '<label class="field"><span>班級名稱（顯示在網頁標題旁邊，最多 20 字；好幾個班共用同一個網頁時，學生和老師一眼就知道這是哪一班）</span><input id="cfg_className" maxlength="20" placeholder="例如：攝影一甲" value="'+escapeAttr(cfg.className||'')+'"></label>' +
         '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(cfg.teacherPasscode)+'"></label>' +
         '<div class="field"><span>開放作品牆顯示姓名／座號（可以個別設定每份作業，建議該份作業評分截止後再打開）</span>' +
           assignments.map(function(a){
@@ -3346,7 +3369,7 @@ function screenTeacher(){
       '<summary>快速切換身分（測試用，只有你自己看得到）</summary>' +
       '<div class="form">' +
         '<p class="hint">這組設定只存在你這台裝置，不會同步進資料庫、學生也看不到，方便你一個人測試時快速切換不同身分。</p>' +
-        '<label class="toggle-row"><input type="checkbox" id="quickIdentityEnabled" '+(localStorage.getItem('crit.quickIdentityEnabled')==='1'?'checked':'')+'> 在首頁顯示「快速切換身分」</label>' +
+        '<label class="toggle-row"><input type="checkbox" id="quickIdentityEnabled" '+(localStorage.getItem(sk('crit.quickIdentityEnabled'))==='1'?'checked':'')+'> 在首頁顯示「快速切換身分」</label>' +
         '<label class="field"><span>身分清單（格式跟器材分組一樣：第一行組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="quickIdentityGroups" style="min-height:120px">'+escapeHtml(getQuickIdentityText())+'</textarea></label>' +
         '<button type="button" class="btn btn-accent" id="saveQuickIdentity">儲存（只存在這台裝置）</button>' +
       '</div>' +
@@ -3467,12 +3490,13 @@ function navHtml(role){
   // 左上角的標題可以點，一點就切回教師模式（不用再輸入密語）——所以只是在原本的標題上多一個點擊目標，
   // 外觀完全不變；學生的裝置沒登入過教師模式，這個標題就只是文字。
   var teacherCanReturn = !!teacherAuthPasscode();
-  var brandHtml = '<div class="brand"'+(teacherCanReturn ? ' data-nav="teacher" role="button" style="cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none"' : '')+'><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+'</div>';
+  var brandHtml = '<div class="brand"'+(teacherCanReturn ? ' data-nav="teacher" role="button" style="cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none"' : '')+'><span class="brand-mark">&#9686;</span>'+escapeHtml(TITLE)+(classNameText() ? '<span class="brand-class">· '+escapeHtml(classNameText())+'</span>' : '')+'</div>';
   return '<header class="topbar"><div class="topbar-top">'+brandHtml+identityBadgeHtml()+'</div><nav class="tabs">'+btn('home','首頁')+btn('submit','交作品')+btn('review','評分')+btn('gallery','作品牆')+btn('equipment','借器材')+'</nav><div id="equipMiniBarSlot">'+equipMiniBarHtml()+'</div></header>';
 }
 
 function render(){
   var role = getRole();
+  try{ document.title = TITLE + (classNameText() ? ' · ' + classNameText() : ''); }catch(e){}
   if(role!=='teacher' || teacherTab!=='gallery') leaveTeacherGalleryMode();
   var toast = popToast();
   var html =
@@ -3835,7 +3859,8 @@ function handleSaveConfig(form){
   // 改成直接操作按鈕本身當作提示，等真的存好了再讓 loadTeacherView() 正常重畫。
   var btn = form.querySelector('button[type="submit"]');
   if(btn){ btn.disabled = true; btn.textContent = '儲存中...'; }
-  apiGet('teacherUpdateConfig', { passcode:authPass, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, revealMinReviewers:revealMinReviewers, revealMinReviews:revealMinReviews, assignmentDescriptions:assignmentDescriptions, assignments:newAssignments }).then(function(res){
+  var classNameVal = (form.querySelector('#cfg_className') ? form.querySelector('#cfg_className').value : (teacherView.config.className||'')).trim().slice(0, 20);
+  apiGet('teacherUpdateConfig', { passcode:authPass, className:classNameVal, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, revealMinReviewers:revealMinReviewers, revealMinReviews:revealMinReviews, assignmentDescriptions:assignmentDescriptions, assignments:newAssignments }).then(function(res){
     if(!res.ok){
       alert('儲存失敗：密語不對或權限有問題，請重新登入教師專區再試一次。');
       clearTeacherAuth();
@@ -4118,7 +4143,7 @@ function attachHandlers(){
     }
     if(e.target.closest('#wantMore')){
       var done2 = reviewView ? reviewView.myDone : 0;
-      sessionStorage.setItem('crit.extraTarget', String(done2+5));
+      sessionStorage.setItem(sk('crit.extraTarget'), String(done2+5));
       loadReviewView();
       return;
     }
@@ -4164,7 +4189,7 @@ function attachHandlers(){
     if(e.target.closest('#loginCancel')){ loginStep = null; render(); return; }
     if(e.target.closest('#loginSubmit')){ handleLoginSubmit(); return; }
     if(e.target.closest('#hideQuickIdentity')){
-      localStorage.setItem('crit.quickIdentityEnabled', '0');
+      localStorage.setItem(sk('crit.quickIdentityEnabled'), '0');
       setToast('info','已隱藏，要再打開請到「教師專區」重新勾選');
       render();
       return;
@@ -4215,8 +4240,8 @@ function attachHandlers(){
     if(e.target.closest('#saveQuickIdentity')){
       var enabled = document.getElementById('quickIdentityEnabled').checked;
       var groupsText = document.getElementById('quickIdentityGroups').value;
-      localStorage.setItem('crit.quickIdentityEnabled', enabled ? '1' : '0');
-      localStorage.setItem('crit.quickIdentityGroups', groupsText);
+      localStorage.setItem(sk('crit.quickIdentityEnabled'), enabled ? '1' : '0');
+      localStorage.setItem(sk('crit.quickIdentityGroups'), groupsText);
       setToast('success','已儲存（只存在這台裝置）');
       render();
       return;
@@ -4296,7 +4321,7 @@ function attachHandlers(){
       return;
     }
     if(e.target.closest('#simReset')){
-      try{ localStorage.removeItem('crit.simEquip'); }catch(err){}
+      try{ localStorage.removeItem(sk('crit.simEquip')); }catch(err){}
       Object.keys(equipCheckboxDraft).forEach(function(k){ if(k.indexOf(SIM_GROUP_NAME+'::')===0) delete equipCheckboxDraft[k]; });
       setToast('info','已重設模擬。');
       render();
@@ -4388,7 +4413,7 @@ function init(){
   } else if(role==='gallery' || role==='teacher'){
     markCritical('home'); // 這兩頁的主要 API 本身就會帶回作業清單
   } else {
-    apiGet('home').then(function(){ markCritical('home'); render(); }).catch(function(){ markCritical('home'); });
+    apiGet('home').then(function(json){ if(json && json.assignments){ homeStats = json; swrSave('home', json); } markCritical('home'); render(); }).catch(function(){ markCritical('home'); });
   }
   if(role!=='submit') prefetchMySubs(); // 人在交作品頁的話，goTo 已經會抓，不重複
   if(role!=='equipment' && role!=='teacher'){
