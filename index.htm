@@ -515,11 +515,9 @@ function getApiUrl(){
         localStorage.setItem('crit.cls', params.get('cls') || ''); // 學生連結帶 &cls=班級代號；沒帶就是原本的那一班
         saved = localStorage.getItem('crit.apiUrl') === fromQuery;
       }catch(e){}
-      if(saved) history.replaceState({}, '', location.pathname);
-      else { memApi = fromQuery; memCls = params.get('cls') || ''; } // 存不起來：網址留在網址列，這次先連得上，重新整理也還在
+      if(!saved){ memApi = fromQuery; memCls = params.get('cls') || ''; } // 存不起來：這次先連得上（網址本來就留在網址列，重新整理也還在）
     } else if(params.has('cls')){
       localStorage.setItem('crit.cls', params.get('cls') || '');
-      history.replaceState({}, '', location.pathname);
     } else if(params.has('_r')){
       // 「強制重新整理」帶來的一次性參數（網址不同，瀏覽器和 CDN 才不會拿舊檔），載入後把它從網址列拿掉
       params.delete('_r');
@@ -531,10 +529,38 @@ function getApiUrl(){
 var apiUrl = getApiUrl();
 // 班級代號：同一個後端可以有好幾個班（見 Code.gs 的多班級），空字串＝原本的那一班。這支裝置目前連的是哪一班。
 var clsId = (function(){ try{ return localStorage.getItem('crit.cls') || memCls; }catch(e){ return memCls; } })();
-function setApiUrl(u, cls){
-  localStorage.setItem('crit.apiUrl', u); apiUrl = u;
-  if(cls !== undefined){ clsId = cls || ''; localStorage.setItem('crit.cls', clsId); }
+/**
+ * 網址列永遠保持「網頁網址＋?api=資料庫網址＋&cls=班級代號」的完整樣子。
+ * 原因：iPhone「加入主畫面」記的是加入當下的網址，而主畫面圖示有自己獨立的儲存空間——
+ * 如果網址列是乾淨的，圖示打開就是一片空白、連不到資料庫；有了完整網址，圖示第一次打開就會自己連上。
+ */
+function syncUrlQuery(){
+  try{
+    var q = apiUrl ? '?api=' + encodeURIComponent(apiUrl) + (clsId ? '&cls=' + encodeURIComponent(clsId) : '') : '';
+    var now = location.search;
+    if(q !== now) history.replaceState({}, '', location.pathname + q);
+  }catch(e){}
 }
+syncUrlQuery();
+function setApiUrl(u, cls){
+  try{ localStorage.setItem('crit.apiUrl', u); }catch(e){}
+  apiUrl = u;
+  if(cls !== undefined){ clsId = cls || ''; try{ localStorage.setItem('crit.cls', clsId); }catch(e){} }
+  syncUrlQuery();
+}
+/** 貼上的可以是完整的「學生連結」（網頁網址?api=...&cls=...），也可以只是資料庫網址（.../exec）。 */
+function parseConnectInput(text){
+  var t = String(text || '').trim();
+  var m = t.match(/[?&]api=([^&#\s]+)/);
+  if(m){
+    var c = t.match(/[?&]cls=([^&#\s]*)/);
+    var api = '', cls = '';
+    try{ api = decodeURIComponent(m[1]); cls = c ? decodeURIComponent(c[1]) : ''; }catch(e){ api = m[1]; cls = c ? c[1] : ''; }
+    return { api: api, cls: cls };
+  }
+  return { api: t, cls: undefined };
+}
+function looksLikeApiUrl(u){ return /^https:\/\/script\.google\.com\/.+\/exec$/.test(String(u || '').trim()); }
 /** 某個班的學生用連結：同一個網頁＋後端網址＋班級代號。 */
 function studentLinkFor(id){
   return location.origin + location.pathname + '?api=' + encodeURIComponent(apiUrl || '') + (id ? '&cls=' + encodeURIComponent(id) : '');
@@ -1178,7 +1204,7 @@ function connectionSectionHtml(){
   var shareLink = current ? studentLinkFor(clsId) : '';
   return (
     '<div class="form">' +
-      '<label class="field"><span>Google Apps Script 網址</span><input id="conn_url" value="'+escapeAttr(current)+'" placeholder="https://script.google.com/macros/s/xxx/exec"></label>' +
+      '<label class="field"><span>Google Apps Script 網址（也可以直接貼老師給的「學生連結」）</span><input id="conn_url" value="'+escapeAttr(current)+'" placeholder="https://script.google.com/macros/s/xxx/exec"></label>' +
       '<label class="field"><span>班級代號（這個資料庫只有一個班，或你要連的是原本那一班，就留空）</span><input id="conn_cls" maxlength="12" value="'+escapeAttr(clsId)+'" placeholder="例如：B"></label>' +
       '<button type="button" class="btn btn-primary" id="saveConn">儲存連線</button>' +
       (current ?
@@ -1368,13 +1394,28 @@ function handleRegisterAwards(assignment, undo){
 function envHintHtml(){
   var bits = [];
   if(!storageWorks()) bits.push('<strong>這個瀏覽器目前不允許網頁儲存資料</strong>（常見原因：「無痕／私密瀏覽」，或封鎖了網站資料），所以記不住資料庫網址和登入狀態。請改用<strong>一般模式</strong>的 Safari 或 Chrome 打開學生連結；iPhone 也可以到「設定 → Safari」確認沒有開「阻擋所有 Cookie」。');
-  if(isStandalone()) bits.push('<strong>你現在是從「主畫面圖示」開啟的</strong>，這種模式的資料和一般瀏覽器是分開的：請到頁面最下面的「連接設定」貼一次資料庫網址；或把主畫面圖示刪掉，先在 Safari 用學生連結開啟，再重新「加入主畫面」。');
+  if(isStandalone()) bits.push('<strong>你現在是從「主畫面圖示」開啟的</strong>，這種模式的資料和一般瀏覽器是分開的：直接在首頁的「連接資料庫」貼上老師給的學生連結，按「連線」就好（只要做一次）；或把主畫面圖示刪掉，先在 Safari 用學生連結開啟，再重新「加入主畫面」。');
   if(!bits.length) return '';
   return '<div class="card" style="border-color:var(--warn)">' + bits.map(function(b){ return '<p class="hint" style="color:var(--warn);line-height:1.7;margin:4px 0">⚠️ ' + b + '</p>'; }).join('') + '</div>';
 }
+function homeConnectBoxHtml(){
+  return '<div class="card"><h2 class="screen-title" style="font-size:1rem">連接資料庫</h2>' +
+    '<p class="hint">貼上老師給的「學生連結」，按「連線」。只要做一次，這台裝置之後就會記住。</p>' +
+    '<label class="field"><input id="home_link" placeholder="貼上學生連結" autocomplete="off" autocapitalize="off"></label>' +
+    '<button type="button" class="btn btn-primary" id="homeConnectBtn" style="width:100%">連線</button></div>';
+}
+function handleHomeConnect(){
+  var input = document.getElementById('home_link');
+  var parsed = parseConnectInput(input ? input.value : '');
+  if(!looksLikeApiUrl(parsed.api)){ alert('這看起來不是學生連結。請把老師給的整條連結貼上來（網址裡會有 ?api=… 這一段）。'); return; }
+  setApiUrl(parsed.api, parsed.cls !== undefined ? parsed.cls : '');
+  setToast('success', '已連線');
+  render();
+  loadHome();
+}
 function screenHome(){
   // 首頁只留身分設定；原本的標題、說明文字、統計數字和使用步驟已經拿掉。
-  var setupHint = !apiUrl ? '<div class="card"><p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址，或用老師給的學生連結重新開啟。</p></div>' + envHintHtml() : '';
+  var setupHint = !apiUrl ? '<div class="card"><p class="hint">尚未連接資料庫。</p></div>' + homeConnectBoxHtml() + envHintHtml() : '';
   return identitySectionHtml() + quickIdentitySwitcherHtml() + honorsHtml() + setupHint;
 }
 
@@ -4171,10 +4212,13 @@ function handleExportCsv(){
   setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
 }
 function handleSaveConnection(form){
-  var url = form.querySelector('#conn_url').value.trim();
-  if(!url){ alert('請貼上網址'); return; }
+  var raw = form.querySelector('#conn_url').value.trim();
+  if(!raw){ alert('請貼上網址'); return; }
+  var parsed = parseConnectInput(raw);
+  var url = parsed.api;
+  if(!looksLikeApiUrl(url)){ alert('這看起來不是資料庫網址。請貼老師給的「學生連結」，或以 https://script.google.com/ 開頭、/exec 結尾的資料庫網址。'); return; }
   var clsInput = form.querySelector('#conn_cls');
-  setApiUrl(url, clsInput ? clsInput.value.trim() : undefined);
+  setApiUrl(url, parsed.cls !== undefined ? parsed.cls : (clsInput ? clsInput.value.trim() : undefined));
   setToast('success', '連線已儲存');
   render();
   loadHome();
@@ -4466,6 +4510,7 @@ function attachHandlers(){
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; slideReviewsOpen = false; exitFullscreenIfActive(); render(); return; }
     var rvBtn = e.target.closest('[data-reviews-toggle]');
     if(rvBtn && slideshowIndex != null){ setReviewsPanel(!slideReviewsOpen); return; }
+    if(e.target.closest('#homeConnectBtn')){ handleHomeConnect(); return; }
     if(e.target.closest('#rosterImportBtn')){ handleRosterImport(); return; }
     if(e.target.closest('#createClassBtn')){ handleCreateClass(); return; }
     var copyCls = e.target.closest('[data-copy-class]');
