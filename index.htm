@@ -801,11 +801,18 @@ function handleAuthFailure(){
 // 一樣不受跨網域限制，缺點是讀不到回應內容。不等 iframe 的 load
 // 事件（那個訊號不準，常常要等很久甚至不觸發），送出後就馬上開始
 // 用 apiGet 輪詢確認資料有沒有真的存進去，靠輪詢的重試機制來處理時間差。
-function postFormNoRead(action, payload){
+function postFormNoRead(action, payload, freshTarget){
   var form = document.createElement('form');
   form.method = 'POST';
   form.action = apiUrl;
   form.target = 'uploadTarget';
+  if(freshTarget){
+    var fr = document.createElement('iframe');
+    fr.name = 'uploadTarget_' + Date.now(); fr.style.display = 'none';
+    document.body.appendChild(fr);
+    form.target = fr.name;
+    setTimeout(function(){ if(fr.parentNode) fr.parentNode.removeChild(fr); }, 180000);
+  }
   form.style.display = 'none';
   function addField(name, value){
     var inp = document.createElement('input');
@@ -3658,15 +3665,27 @@ function handleFileChange(input){
   });
 }
 
-function pollForSubmission(id, attempt){
-  var delay = attempt === 0 ? 400 : 500; // 給表單送出一點點頭彩時間，之後密集檢查
+var SUBMIT_POLL_BUDGET_MS = 45000; // 每一輪最多等多久（全班同時交的時候，後面的人要排隊）
+function updateSubmitWaitNote(waitedMs, retried){
+  var el = document.querySelector('.submit-overlay-msg');
+  if(!el) return;
+  var sec = Math.round(waitedMs / 1000);
+  el.textContent = sec < 6 ? (retried ? '還在處理中，已自動重送一次，請稍候…' : '正在上傳中，請稍候…')
+    : '同學很多人同時在交，排隊處理中（已等 '+sec+' 秒），請不要關閉或重新整理…';
+}
+function pollForSubmission(id, attempt, startedAt, retried){
+  startedAt = startedAt || Date.now();
+  var delay = attempt === 0 ? 400 : (attempt < 8 ? 600 : 1500); // 先密集查，等久了就放慢
   return new Promise(function(resolve){ setTimeout(resolve, delay); }).then(function(){
-    return apiGet('getMySubmissions', { studentNorm: identityNorm() });
+    // 輪詢中網路抖一下不算失敗，繼續等
+    return apiGet('getMySubmissions', { studentNorm: identityNorm() }).catch(function(){ return { submissions: [] }; });
   }).then(function(res){
     var found = (res.submissions||[]).filter(function(s){ return s.id===id; })[0];
     if(found) return found;
-    if(attempt >= 8) return null;
-    return pollForSubmission(id, attempt+1);
+    var waited = Date.now() - startedAt;
+    if(waited >= SUBMIT_POLL_BUDGET_MS || submitCancelled) return null;
+    updateSubmitWaitNote(waited, retried);
+    return pollForSubmission(id, attempt+1, startedAt, retried);
   });
 }
 
@@ -3691,27 +3710,48 @@ function handleSubmitWork(form){
   payload.imageMime = pendingImage.mime;
   payload.token = getToken(); // 隱藏表單不是走 apiGet，要自己帶登入 token
   if(teacherAuthPasscode()) payload.teacherPass = teacherAuthPasscode();
+  var savedPending = pendingImage; // 留著，萬一最後還是沒送成功，讓學生再按一次送出，不用重新選圖
   pendingImage = null;
   postFormNoRead('addSubmission', payload);
+  function hasSameImage(res){
+    return (res.submissions||[]).some(function(s){ return s.imageHash===payload.imageHash && normAssignment(s.assignment)===normAssignment(assignment); });
+  }
   pollForSubmission(payload.id, 0).then(function(sub){
+    if(sub || submitCancelled) return sub;
+    // 第一輪沒等到：先確認是不是「內容一模一樣所以沒新增」；不是的話自動重送一次
+    // （伺服器用同一個編號去重，萬一第一次其實還在排隊，也不會重複新增）
+    return apiGet('getMySubmissions', { studentNorm: identityNorm() }).then(function(res){
+      var found = (res.submissions||[]).filter(function(s){ return s.id===payload.id; })[0];
+      if(found) return found;
+      if(hasSameImage(res)) return { dup: true };
+      updateSubmitWaitNote(0, true);
+      postFormNoRead('addSubmission', payload, true);
+      return pollForSubmission(payload.id, 0, null, true);
+    });
+  }).then(function(sub){
     loading = false; submittingWork = false;
     if(submitCancelled) return;
-    submitTargetAssignment = null;
+    if(sub && sub.dup){
+      submitTargetAssignment = null;
+      setToast('info', '這件作品你之前已經交過了（內容一模一樣），沒有重複新增。');
+      loadMySubs();
+      return;
+    }
     if(sub){
+      submitTargetAssignment = null;
       setToast('success', '已送出！同學評分時不會看到你的名字。');
       loadMySubs();
       return;
     }
-    // 沒等到這一件：可能是還在處理，也可能是伺服器判斷「內容一模一樣、已經交過了」而沒有新增，查一下才不會講錯。
-    return apiGet('getMySubmissions', { studentNorm: identityNorm() }).then(function(res){
-      var dup = (res.submissions||[]).some(function(s){ return s.imageHash===payload.imageHash && normAssignment(s.assignment)===normAssignment(assignment); });
-      setToast(dup ? 'info' : 'success', dup ? '這件作品你之前已經交過了（內容一模一樣），沒有重複新增。' : '已送出，圖片處理中，稍後重新整理「交作品」頁面就會看到。');
-      loadMySubs();
-    });
+    // 兩輪都沒等到：圖片還在，請學生再按一次送出（已經送到的話不會重複新增）
+    pendingImage = savedPending;
+    setToast('error', '這件作品好像還沒送出成功（可能很多人同時在交）。圖片還在，請再按一次「送出作品」；如果其實已經送到，不會重複新增。');
+    render();
   }).catch(function(e){
     loading = false; submittingWork = false;
     if(submitCancelled) return;
-    setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。');
+    pendingImage = savedPending;
+    setToast('error', '送出失敗（'+e.message+'），請檢查網路連線或稍後再試。圖片還在，可以直接再按一次「送出作品」。');
     render();
   });
 }
