@@ -323,8 +323,8 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
 .slideshow-overlay{touch-action:none;overscroll-behavior:contain;position:fixed;inset:0;background:rgba(10,12,11,0.96);z-index:50;--slide-scale:1;}
 .slide-close{position:absolute;top:16px;right:16px;background:none;border:none;color:#fff;font-size:2rem;line-height:1;cursor:pointer;padding:4px 10px;z-index:3;}
 .slide-body{position:absolute;top:10px;left:10px;right:10px;bottom:10px;display:flex;gap:16px;align-items:stretch;min-height:0;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none;}
-.slide-stage{flex:3;min-width:0;display:flex;align-items:center;justify-content:center;}
-.slide-stage img{width:100%;height:100%;border-radius:6px;object-fit:contain;}
+.slide-stage{flex:3;min-width:0;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;}
+.slide-stage img{width:100%;height:100%;border-radius:6px;object-fit:contain;transform-origin:center center;will-change:transform;}
 .slide-stage iframe{width:100%;height:100%;border:0;border-radius:6px;background:#fff;}
 .slide-radar{flex:1;min-width:220px;max-width:380px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(8px * var(--slide-scale));}
 /* 雷達圖正下方放作業名稱、座號姓名、平均分數，一起置中 */
@@ -497,6 +497,8 @@ var honorsAssignment = null;
 var slideReviewsOpen = false; // 教師作品牆播放時，是否打開「評分明細」面板
 var workReviewsCache = {};  // { 作品編號: 該作品的評分明細 }
 var workReviewsLoading = {};
+var workReviewsAll = 'none'; // 全部作品明細的預載狀態：none｜loading｜done｜unsupported（舊版 Code.gs 沒有這個動作）
+var WORK_REVIEWS_STALE_MS = 60000; // 明細超過這個時間就在背景悄悄更新（畫面先用舊的，不等）
 var homeDescAssignment = null; // 首頁作業要求說明目前選的是哪一份作業，null 就預設選第一份
 var mySubs = null;
 var mySubsFor = null; // mySubs 是哪個身分的清單，換人之後不能拿別人的清單來先顯示
@@ -576,7 +578,7 @@ function enterTeacherGalleryMode(){
 function leaveTeacherGalleryMode(){
   if(!teacherGalleryActive) return;
   teacherGalleryActive = false;
-  slideReviewsOpen = false; workReviewsCache = {}; // 評分明細是老師專用，離開教師作品牆就收起來、清掉暫存
+  slideReviewsOpen = false; workReviewsCache = {}; workReviewsAll = 'none'; // 評分明細是老師專用，離開教師作品牆就收起來、清掉暫存
   galleryData = teacherGalleryBackup.data;
   galleryShowNames = teacherGalleryBackup.names;
   galleryShowScores = teacherGalleryBackup.scores;
@@ -1744,6 +1746,8 @@ function slideReviewsPanelHtml(r){
     return '<div class="slide-reviews">'+head+'<p class="rv-legend">載入中...</p></div>';
   }
   if(data.error) return '<div class="slide-reviews">'+head+'<p class="rv-legend" style="color:#ffb4ab">'+escapeHtml(data.error)+'</p></div>';
+  // 有舊資料就先顯示（馬上看得到），太舊的話同時在背景更新，更新好再悄悄換
+  if(Date.now() - (data._at || 0) > WORK_REVIEWS_STALE_MS && !workReviewsLoading[r.workCode]) setTimeout(function(){ loadWorkReviews(r.workCode); }, 0);
   var list = data.reviews || [];
   var rows = list.map(function(x){
     var bad = x.gap != null && Math.abs(x.gap) >= 1.5;
@@ -1788,12 +1792,48 @@ function loadWorkReviews(code){
   if(!pass || workReviewsLoading[code]) return;
   workReviewsLoading[code] = true;
   apiGet('teacherWorkReviews', { passcode: pass, workCode: code }).then(function(res){
-    workReviewsCache[code] = (res && res.ok) ? res : { error: res && res.error==='unauthorized' ? '教師密語不對。' : '讀不到評分明細（請確認 Code.gs 已經重新部署最新版）。' };
+    if(res && res.ok){ res._at = Date.now(); workReviewsCache[code] = res; }
+    else if(!workReviewsCache[code] || workReviewsCache[code].error){
+      workReviewsCache[code] = { error: res && res.error==='unauthorized' ? '教師密語不對。' : '讀不到評分明細（請確認 Code.gs 已經重新部署最新版）。' };
+    }
   }).catch(function(e){
-    workReviewsCache[code] = { error: '讀取失敗：' + e.message };
+    if(!workReviewsCache[code] || workReviewsCache[code].error) workReviewsCache[code] = { error: '讀取失敗：' + e.message };
   }).then(function(){
     delete workReviewsLoading[code];
-    if(slideshowIndex != null && slideReviewsOpen) updateReviewsPanelDom();
+    if(slideshowIndex != null && slideReviewsOpen && slideCurrentWork() === code) updateReviewsPanelDom();
+  });
+}
+/**
+ * 評分明細預載：教師一進作品牆，就在背景把「全部作品」的明細一次載好（一個請求），
+ * 之後播放中往下滑／按「評分明細」是直接顯示，不用等。舊版 Code.gs 沒有一次載入的動作時，退回成「預載前後兩張」。
+ */
+function prefetchAllWorkReviews(){
+  if(!teacherGalleryActive || workReviewsAll !== 'none') return;
+  var pass = teacherAuthPasscode();
+  if(!pass || !apiUrl) return;
+  workReviewsAll = 'loading';
+  apiGet('teacherAllReviews', { passcode: pass }).then(function(res){
+    if(res && res.ok && res.works){
+      var now = Date.now();
+      Object.keys(res.works).forEach(function(code){
+        workReviewsCache[code] = { ok: true, workCode: code, criteria: res.criteria, reviews: res.works[code], _at: now };
+      });
+      workReviewsAll = 'done';
+      if(slideshowIndex != null && slideReviewsOpen) updateReviewsPanelDom();
+    } else {
+      workReviewsAll = (res && res.error === 'unknown_action') ? 'unsupported' : 'none';
+      if(workReviewsAll === 'unsupported') prefetchNeighborReviews();
+    }
+  }).catch(function(){ workReviewsAll = 'none'; });
+}
+/** 一次載入不能用的時候的備案：播放中順便把前後兩張的明細先載好。 */
+function prefetchNeighborReviews(){
+  if(!teacherGalleryActive || slideshowIndex == null || workReviewsAll !== 'unsupported') return;
+  var rows = sortedGalleryRows();
+  if(rows.length < 2) return;
+  [1, -1, 0].forEach(function(d){
+    var r = rows[(((slideshowIndex + d) % rows.length) + rows.length) % rows.length];
+    if(r && !workReviewsCache[r.workCode] && !workReviewsLoading[r.workCode]) loadWorkReviews(r.workCode);
   });
 }
 /** 老師加分列：只在教師模式的作品牆播放時出現。0＝不加分，1~3＝加幾分，總平均最高 5 分。 */
@@ -1974,6 +2014,7 @@ function renderSlideshowOnly(){
     if(oldStage && newStage) newStage.replaceWith(oldStage);
   }
   old.replaceWith(neu);
+  if(teacherGalleryActive) setTimeout(prefetchNeighborReviews, 0);
   scheduleBackgroundPreload();
 }
 function startSlideTimer(){
@@ -2026,41 +2067,136 @@ document.addEventListener('wheel', function(e){
  */
 var slideSwipeStart = null;
 var lastSwipeAt = 0;
+// ---- 作品圖縮放／移動 ----
+// 兩隻手指：捏合縮放、同時拖動移動；放大以後一隻手指拖動也是移動，點一下回到原本大小。
+// 放大的時候不會換張、也不會開關評分明細（手勢都留給圖片）；圖片只在照片區裡面縮放（照片區有 overflow:hidden），
+// 下方的資訊、按鈕和評分明細完全不受影響。換到別件作品會自動恢復原本大小。
+var slideZoom = { s: 1, x: 0, y: 0 };
+var slideZoomWork = null;   // 這份縮放狀態是哪件作品的
+var slideGesture = null;    // 'pinch'｜'pan'｜null
+var slidePinch = null;
+var SLIDE_ZOOM_MAX = 6;
+function slideCurrentWork(){ var ov = document.querySelector('.slideshow-overlay'); return ov ? ov.getAttribute('data-work') : null; }
+function slideZoomed(){ return slideZoom.s > 1.02 && slideZoomWork === slideCurrentWork(); }
+function applySlideZoom(animate){
+  var img = document.querySelector('.slide-stage img');
+  if(!img) return;
+  img.style.transition = animate ? 'transform .2s ease' : 'none';
+  img.style.transform = (slideZoom.s === 1 && !slideZoom.x && !slideZoom.y) ? '' : 'translate('+slideZoom.x+'px,'+slideZoom.y+'px) scale('+slideZoom.s+')';
+}
+function resetSlideZoom(animate){ slideZoom = { s: 1, x: 0, y: 0 }; applySlideZoom(animate); }
+function clampSlideZoom(){
+  var st = document.querySelector('.slide-stage');
+  if(!st) return;
+  var r = st.getBoundingClientRect();
+  var mx = (slideZoom.s - 1) * r.width / 2 + r.width * 0.15, my = (slideZoom.s - 1) * r.height / 2 + r.height * 0.15;
+  slideZoom.x = Math.max(-mx, Math.min(mx, slideZoom.x));
+  slideZoom.y = Math.max(-my, Math.min(my, slideZoom.y));
+}
+function pauseSlideAutoplay(){
+  if(!slideshowPlaying) return;
+  slideshowPlaying = false; stopSlideTimer();
+  var ppb = document.getElementById('slidePlayPause'); if(ppb) ppb.textContent = '播放';
+}
 /**
  * 播放展示的手勢：左右滑＝上一張／下一張；
- * 教師模式另外支援上下滑開關評分明細——往上滑打開、往下滑關閉
- * （明細面板開著的時候，面板自己捲到最上面再往下滑也會關閉）。
+ * 教師模式另外支援上下滑開關評分明細——往下滑打開、往上滑關閉
+ * （明細面板開著的時候，面板內容已經捲到最底（或本來就不用捲）再往上滑也會關閉）；
+ * 兩指＝縮放／移動作品圖（見上面）。
  */
 document.addEventListener('touchstart', function(e){
-  // 整個播放畫面都吃手勢（不只照片區），按鈕、下拉選單除外；面板自己另外處理
+  var inBody = e.target.closest && e.target.closest('.slide-body');
+  // 兩指（落在照片區或雷達區）：開始縮放；圖片以外的東西（內嵌網頁）不處理
+  if(slideshowIndex != null && inBody && e.touches.length === 2 && document.querySelector('.slide-stage img')){
+    var a = e.touches[0], b = e.touches[1];
+    var st = document.querySelector('.slide-stage').getBoundingClientRect();
+    var work = slideCurrentWork();
+    if(slideZoomWork !== work){ slideZoom = { s: 1, x: 0, y: 0 }; slideZoomWork = work; }
+    slidePinch = {
+      d0: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1,
+      s0: slideZoom.s, x0: slideZoom.x, y0: slideZoom.y,
+      m0: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+      c: { x: st.left + st.width / 2, y: st.top + st.height / 2 }
+    };
+    slideGesture = 'pinch'; slideSwipeStart = null;
+    pauseSlideAutoplay();
+    return;
+  }
+  if(slideGesture === 'pinch') return; // 已經在縮放，第三隻手指不管
+  // 放大以後，一隻手指拖動＝移動圖片（不換張、不開明細）
+  if(slideshowIndex != null && inBody && e.touches.length === 1 && slideZoomed()){
+    var t0 = e.touches[0];
+    slideGesture = 'pan'; slideSwipeStart = null;
+    slidePinch = { px: t0.clientX, py: t0.clientY, x0: slideZoom.x, y0: slideZoom.y, moved: 0 };
+    return;
+  }
+  // 整個播放畫面都吃滑動手勢（不只照片區），按鈕、下拉選單除外；面板自己另外處理
   var inOverlay = e.target.closest && e.target.closest('.slideshow-overlay');
   var inControl = e.target.closest && e.target.closest('button, select, input, a');
   var panel = e.target.closest && e.target.closest('.slide-reviews');
   if(slideshowIndex==null || !(inOverlay && (!inControl || panel)) || e.touches.length !== 1){ slideSwipeStart = null; return; }
-  if(inControl && panel) { /* 面板裡的按鈕也當成面板手勢的起點，不影響點擊 */ }
-  slideSwipeStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, panel: panel ? { el: panel, top: panel.scrollTop } : null };
+  slideSwipeStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, panel: panel ? { el: panel, atBottom: panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1 } : null };
 }, { passive: true });
-document.addEventListener('touchend', function(e){
+document.addEventListener('touchmove', function(e){
+  if(!slideGesture || !slidePinch) return;
+  if(slideGesture === 'pinch' && e.touches.length >= 2){
+    var a = e.touches[0], b = e.touches[1];
+    var d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    var s1 = Math.max(1, Math.min(SLIDE_ZOOM_MAX, slidePinch.s0 * d / slidePinch.d0));
+    var mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+    // 讓兩指中間那一點底下的圖片內容跟著手指走（以照片區中心為原點）
+    var qx = (slidePinch.m0.x - slidePinch.c.x - slidePinch.x0) / slidePinch.s0;
+    var qy = (slidePinch.m0.y - slidePinch.c.y - slidePinch.y0) / slidePinch.s0;
+    slideZoom.s = s1;
+    slideZoom.x = mid.x - slidePinch.c.x - qx * s1;
+    slideZoom.y = mid.y - slidePinch.c.y - qy * s1;
+    clampSlideZoom(); applySlideZoom(false);
+  } else if(slideGesture === 'pan' && e.touches.length === 1){
+    var t = e.touches[0];
+    var dx = t.clientX - slidePinch.px, dy = t.clientY - slidePinch.py;
+    slidePinch.moved = Math.max(slidePinch.moved || 0, Math.abs(dx), Math.abs(dy));
+    slideZoom.x = slidePinch.x0 + dx; slideZoom.y = slidePinch.y0 + dy;
+    clampSlideZoom(); applySlideZoom(false);
+  }
+}, { passive: true });
+function slideTouchEnd(e){
+  if(slideGesture){
+    if(e.touches.length === 0){
+      var wasTap = slideGesture === 'pan' && slidePinch && (slidePinch.moved || 0) < 10;
+      lastSwipeAt = Date.now(); // 縮放／移動結束後緊接著的 click 不當成點螢幕換張
+      if(wasTap || slideZoom.s < 1.05) resetSlideZoom(true); // 放大時點一下、或縮回接近原本大小＝回到原本大小
+      slideGesture = null; slidePinch = null;
+    } else if(slideGesture === 'pinch' && e.touches.length === 1){
+      // 兩指變一指：接著當成移動
+      var t = e.touches[0];
+      slideGesture = 'pan';
+      slidePinch = { px: t.clientX, py: t.clientY, x0: slideZoom.x, y0: slideZoom.y, moved: 99 };
+    }
+    return;
+  }
   if(!slideSwipeStart || slideshowIndex==null) return;
-  var t = e.changedTouches[0];
+  var t2 = e.changedTouches[0];
   var start = slideSwipeStart;
-  var dx = t.clientX - start.x, dy = t.clientY - start.y;
+  var dx2 = t2.clientX - start.x, dy2 = t2.clientY - start.y;
   slideSwipeStart = null;
-  var horizontal = Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5;
-  var vertical = Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.5;
+  var horizontal = Math.abs(dx2) > 50 && Math.abs(dx2) > Math.abs(dy2) * 1.5;
+  var vertical = Math.abs(dy2) > 50 && Math.abs(dy2) > Math.abs(dx2) * 1.5;
   if(start.panel){
-    // 在明細面板上：只處理「面板已經捲到最上面又往下滑」＝關閉
-    if(vertical && dy > 0 && start.panel.top === 0 && start.panel.el.scrollTop === 0){ lastSwipeAt = Date.now(); setReviewsPanel(false); }
+    // 在明細面板上：面板內容本來就在最底（或不用捲）時往上滑＝關閉；還能捲的話，往上滑只是捲動內容
+    var el = start.panel.el;
+    if(vertical && dy2 < 0 && start.panel.atBottom && el.scrollTop + el.clientHeight >= el.scrollHeight - 1){ lastSwipeAt = Date.now(); setReviewsPanel(false); }
     return;
   }
   if(horizontal){
     lastSwipeAt = Date.now();
-    slideAdvance(dx < 0 ? 1 : -1);
+    slideAdvance(dx2 < 0 ? 1 : -1);
   } else if(vertical && teacherGalleryActive){
     lastSwipeAt = Date.now();
-    setReviewsPanel(dy < 0); // 往上滑＝打開，往下滑＝關閉
+    setReviewsPanel(dy2 > 0); // 往下滑＝打開，往上滑＝關閉
   }
-}, { passive: true });
+}
+document.addEventListener('touchend', slideTouchEnd, { passive: true });
+document.addEventListener('touchcancel', slideTouchEnd, { passive: true });
 /** 開／關評分明細面板（按鈕和上下滑手勢共用）。只更新面板，不重畫整個播放視窗。 */
 function setReviewsPanel(open){
   if(!teacherGalleryActive || slideshowIndex == null || slideReviewsOpen === open) return;
@@ -2073,6 +2209,7 @@ function setReviewsPanel(open){
 }
 function handleSlideBodyTap(e){
   if(Date.now() - lastSwipeAt < 450) return;
+  if(slideZoomed()){ resetSlideZoom(true); return; } // 放大中點一下＝回到原本大小，不換張
   var rect = e.target.closest('.slide-body').getBoundingClientRect();
   slideAdvance((e.clientX - rect.left) < rect.width / 2 ? -1 : 1);
 }
@@ -3245,6 +3382,7 @@ function screenTeacher(){
     },
     gallery: function(){
       enterTeacherGalleryMode();
+      setTimeout(prefetchAllWorkReviews, 400); // 背景預載全部作品的評分明細（不擋畫面）
       // 學生版作品牆自己有一個大標題，這裡不需要（選單上已經亮著「作品牆」）
       return '<div class="cta-row"><button class="btn btn-accent" id="refreshData">重新整理資料</button></div>' +
         screenGallery().replace('<h1 class="screen-title">作品牆</h1>', '');
@@ -4046,7 +4184,7 @@ function attachHandlers(){
       slideshowIndex = parseInt(card.getAttribute('data-idx'),10) || 0;
       slideshowPlaying = false; enterFullscreen(); render(); return;
     }
-    if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; slideReviewsOpen = false; workReviewsCache = {}; exitFullscreenIfActive(); render(); return; }
+    if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; slideReviewsOpen = false; exitFullscreenIfActive(); render(); return; }
     var rvBtn = e.target.closest('[data-reviews-toggle]');
     if(rvBtn && slideshowIndex != null){ setReviewsPanel(!slideReviewsOpen); return; }
     var attBtn = e.target.closest('[data-att-bonus]');
