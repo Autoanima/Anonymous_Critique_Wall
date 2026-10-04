@@ -3379,8 +3379,7 @@ function screenTeacher(){
     '<details class="card settings-fold" style="border-color:var(--low)">' +
       '<summary style="color:var(--low)" id="section-danger">危險區：一鍵還原資料</summary>' +
       '<p class="hint">會永久刪除全部「作品」與「評分」（含這個班雲端硬碟資料夾裡對應的圖片）、<strong>同學的登入密碼</strong>、加扣分／退回／評分異常等紀錄與匯出報表分頁，並清空器材輪借目前的計時進度和今天的點名結果；但不會動到你已經設定好的班級名稱、評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次；<strong>複製試算表開新班級時，也是在這裡清掉複製來的舊資料</strong>（別班的圖片不會被動到）。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
-      '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
-      '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
+      resetGuardHtml(cfg) +
     '</details>';
 
   var autoRefreshOn = localStorage.getItem('crit.teacherAutoRefresh')==='1';
@@ -3915,22 +3914,57 @@ function handleRenameUploads(){
     alert('整理失敗：'+e.message);
   });
 }
+/**
+ * 一鍵還原的防呆：
+ * 1) 大字顯示「你現在連的是哪一個班」、裡面有幾件作品幾筆評分、後端網址的結尾幾個字——一眼就能看出連錯班。
+ * 2) 一定要先填班級名稱；要手動輸入班級名稱才能執行，而且伺服器會再比對一次（輸入的名稱必須是這個資料庫自己的名稱）。
+ * 3) 執行前，伺服器會先把整份試算表備份到雲端硬碟。
+ */
+function resetGuardHtml(cfg){
+  var cls = String(cfg.className || '').trim();
+  var works = (teacherView && teacherView.rows) ? teacherView.rows.length : 0;
+  var revs = (teacherView && teacherView.reviewCount != null) ? teacherView.reviewCount : 0;
+  var tail = String(apiUrl || '').replace(/\/exec.*$/, '').slice(-6);
+  var info = '<div style="border:2px solid var(--low);border-radius:10px;padding:10px 12px;margin:10px 0;line-height:1.7">' +
+    '你現在連的資料庫是：<strong style="font-size:1.25rem;color:var(--low)">' + (cls ? '【'+escapeHtml(cls)+'】' : '（還沒有班級名稱）') + '</strong><br>' +
+    '裡面目前有 <strong>' + works + '</strong> 件作品、<strong>' + revs + '</strong> 筆評分<br>' +
+    '<span class="hint">資料庫網址結尾：…' + escapeHtml(tail) + '。如果這不是你要清空的班級，請不要繼續。</span></div>';
+  if(!cls){
+    return info + '<p class="hint" style="color:var(--low)">為了避免按錯班級，要先到這一頁<strong>最上方</strong>的「班級名稱」欄位填好並按「儲存設定」，才能使用一鍵還原。</p>';
+  }
+  return info +
+    '<label class="field"><span>請輸入<strong>你要清空的班級名稱</strong>（要憑自己的記憶輸入；如果和上面顯示的資料庫不是同一班，就不會執行）</span><input id="reset_confirm_class" placeholder="班級名稱" autocomplete="off"></label>' +
+    '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
+    '<p class="hint">按下去之後，系統會先把整份試算表<strong>備份到雲端硬碟</strong>（和這份試算表放在同一個資料夾），備份成功才會開始清除。</p>' +
+    '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>';
+}
 function handleResetAllData(){
   var input = document.getElementById('reset_confirm_pass');
   var typed = input ? input.value.trim() : '';
   var authPass = teacherAuthPasscode();
   if(!typed){ alert('請在上面欄位再輸入一次教師密語，確認要執行這個動作。'); return; }
   if(typed !== authPass){ alert('密語不對，為了安全沒有執行。'); return; }
-  if(!confirm('確定要永久刪除全部作品和評分嗎？這個動作沒辦法復原！')) return;
+  var cls = String((teacherView && teacherView.config && teacherView.config.className) || '').trim();
+  var typedClass = (document.getElementById('reset_confirm_class') || {}).value;
+  typedClass = String(typedClass || '').trim();
+  if(!cls){ alert('請先到這一頁最上方填好「班級名稱」並儲存，才能使用一鍵還原。'); return; }
+  if(typedClass !== cls){ alert('你輸入的班級名稱和這個資料庫不符，為了安全沒有執行。\n\n這個資料庫是「'+cls+'」。如果它不是你要清空的班級，請到頁尾「連接設定」確認網址；如果就是這一班，請完整輸入班級名稱。'); return; }
+  if(!confirm('確定要清空【'+cls+'】的全部作品和評分嗎？\n\n會先備份整份試算表到雲端硬碟，再開始清除。清除後作品圖片會進雲端硬碟垃圾桶（保留 30 天）。')) return;
   var btn = document.getElementById('resetAllDataBtn');
   if(btn){ btn.disabled = true; btn.textContent = '處理中...'; }
-  apiGet('resetAllData', { passcode: authPass, confirmPasscode: typed }).then(function(res){
+  apiGet('resetAllData', { passcode: authPass, confirmPasscode: typed, confirmClassName: typedClass }).then(function(res){
     if(!res.ok){
-      alert('還原失敗：'+(res.error||'unknown'));
+      var why = res.error === 'class_mismatch' ? '這個資料庫的班級名稱是「'+(res.className||'')+'」，和你輸入的不一樣，所以沒有執行。你可能連到別班的資料庫了，請先確認「連接設定」。'
+        : res.error === 'class_name_required' ? '這個資料庫還沒有設定班級名稱，請先設定並儲存（也可能是 Code.gs 還沒更新到最新版）。'
+        : res.error === 'backup_failed' ? '備份失敗，為了安全沒有刪除任何東西：'+(res.detail||'')
+        : res.error === 'confirm_mismatch' ? '密語確認沒有通過。'
+        : (res.error||'unknown');
+      alert('還原失敗：'+why);
       if(btn){ btn.disabled = false; btn.textContent = '永久刪除所有作品與評分，還原成初始狀態'; }
       return;
     }
-    setToast('success','已經還原成初始狀態，所有作品和評分都清空了。');
+    setToast('success','已經還原成初始狀態，所有作品和評分都清空了。' + (res.backup ? '（備份：' + res.backup.name + '）' : ''));
+    if(res.backup) alert('已經先備份到雲端硬碟：\n' + res.backup.name + '\n\n之後如果發現清錯了，打開這份備份就能找回作品與評分（圖片到雲端硬碟垃圾桶還原）。');
     if(input) input.value = '';
     loadTeacherView();
     if(equipmentData) loadEquipment();
