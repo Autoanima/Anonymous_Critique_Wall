@@ -2375,11 +2375,24 @@ function buildEquipSegments(order, perMs, elapsed, waivedSeats){
   });
   return { segments:segments, totalMs:cursor };
 }
+/**
+ * 所有組別同時開始、同時結束：總時間以「出席人數最多的那一組」為準（人數 × 每人分鐘），
+ * 人數比較少的組，每個人的時間就依比例拉長（總時間不變，平均分給組內每個人）。
+ * 例如每人 7 分鐘、最多的組 5 人（共 35 分鐘），3 人的組每人約 11.7 分鐘，兩組一起在第 35 分鐘結束。
+ * 回傳這一組實際每人的毫秒數（baseMs 是老師設的每人時間，maxN 是最多的那組人數）。
+ */
+function equipGroupSlot(eq, group){
+  var baseMs = (eq.perPersonMinutes||6)*60000;
+  var n = presentOrderFor(group || {}).length;
+  var maxN = n;
+  (eq.groups||[]).forEach(function(g){ var c = presentOrderFor(g).length; if(c > maxN) maxN = c; });
+  return { n:n, maxN:maxN, baseMs:baseMs, perMs: n ? baseMs * maxN / n : baseMs };
+}
 function equipGroupState(eq, group){
   var order = presentOrderFor(group || {});
   var n = order.length;
   if(!n || !eq.startedAt) return { active:false, order:order };
-  var perMs = eq.perPersonMinutes*60000;
+  var perMs = equipGroupSlot(eq, group).perMs;
   var now = eq.pausedAt ? eq.pausedAt : Date.now();
   var elapsed = Math.max(0, now - eq.startedAt - (eq.pausedTotalMs||0));
   var waivedSeats = (group && group.waivedSeats) || [];
@@ -2645,6 +2658,13 @@ function equipmentReturnChecklistHtml(eq, group){
  * 教師版的器材輪值總覽：學生進來只看得到自己那一組，但老師要能一次看到全部組別
  * 現在輪到誰、進度到哪裡，不用一組一組去對照座號才能知道。
  */
+/** 人數比最多的組少時，這組每個人的時間會拉長（讓各組同時結束），在標題旁邊說明實際每人幾分鐘。 */
+function slotNoteHtml(eq, g){
+  var sl = equipGroupSlot(eq, g);
+  if(!sl.n || sl.n >= sl.maxN) return '';
+  var mins = Math.round(sl.perMs / 6000) / 10; // 一位小數
+  return '　<span class="hint" style="font-weight:400" title="這組人數比最多的組少，為了讓各組同時結束，每人時間依比例拉長">每人約 '+mins+' 分</span>';
+}
 function teacherEquipmentOverviewHtml(eq){
   if(!eq) return '<div class="card"><p class="hint">載入中...</p></div>';
   if(!eq.groups || !eq.groups.length){
@@ -2681,7 +2701,7 @@ function teacherEquipmentOverviewHtml(eq){
       : '';
     return (
       '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+swatchColorFor(currentColorName):'')+'">' +
-        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml((leaderSeatFor(g))?(leaderSeatFor(g)+' 號'):'（尚未排定順序）')+'</h3>' +
+        '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml((leaderSeatFor(g))?(leaderSeatFor(g)+' 號'):'（尚未排定順序）')+slotNoteHtml(eq, g)+'</h3>' +
         body +
         waiverHtml +
       '</div>'
@@ -2869,9 +2889,8 @@ function teacherEquipMiniHtml(eq){
   if(!eq || !eq.groups || !eq.groups.length) return '';
   var candidates = eq.groups.filter(function(gr){ return (gr.order||[]).length; });
   if(!candidates.length) return '';
-  // 因為現在輪完一輪就會自動結束（不會無限繞圈），不同組人數不一樣，
-  // 結束的時間點也會不一樣，不能再隨便挑一組來代表全部——這裡改成找
-  // 「還在跑」的那一組來顯示；如果全部組別都跑完了，就直接說跑完了。
+  // 各組總時間都以人數最多的組為準，所以會同時結束；但每組目前輪到的人、剩餘時間不一樣，
+  // 這裡挑「還在跑」的第一組當代表；全部組別都跑完了就說跑完了。
   var states = candidates.map(function(g){ return equipGroupState(eq, g); });
   var running = states.filter(function(s){ return s.active && !s.done; })[0];
   if(running) return '<span class="hint" style="font-size:0.8rem;font-family:\'JetBrains Mono\',monospace;white-space:nowrap">剩 '+fmtTime(running.remainingMs)+(running.paused?'（暫停）':'')+'</span>';
