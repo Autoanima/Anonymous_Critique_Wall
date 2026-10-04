@@ -3378,7 +3378,7 @@ function screenTeacher(){
   var dangerZoneHtml =
     '<details class="card settings-fold" style="border-color:var(--low)">' +
       '<summary style="color:var(--low)" id="section-danger">危險區：一鍵還原資料</summary>' +
-      '<p class="hint">會永久刪除全部「作品」與「評分」（含雲端硬碟裡對應的圖片），並清空器材輪借目前的計時進度和今天的點名結果；但不會動到你已經設定好的評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
+      '<p class="hint">會永久刪除全部「作品」與「評分」（含這個班雲端硬碟資料夾裡對應的圖片）、<strong>同學的登入密碼</strong>、加扣分／退回／評分異常等紀錄與匯出報表分頁，並清空器材輪借目前的計時進度和今天的點名結果；但不會動到你已經設定好的班級名稱、評分題目、作業清單、密語、姓名／分數公開規則、器材分組名單與顏色——這些「設定」會保留。適合測試完畢、正式開放給學生使用前執行一次；<strong>複製試算表開新班級時，也是在這裡清掉複製來的舊資料</strong>（別班的圖片不會被動到）。<strong style="color:var(--low)">正式上線後請不要按這個，學生已經交的作品和分數會全部被永久刪除、無法復原。</strong></p>' +
       '<label class="field"><span>再輸入一次教師密語以確認</span><input id="reset_confirm_pass" type="password" placeholder="教師密語"></label>' +
       '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>' +
     '</details>';
