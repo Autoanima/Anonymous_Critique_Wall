@@ -494,15 +494,29 @@ function migrateScopedKeys(oldUrl){
     });
   }catch(e){}
 }
+var memApi = '', memCls = ''; // 瀏覽器不讓網頁儲存資料時（無痕／私密瀏覽、封鎖網站資料），連結裡的網址只能記在這次開啟的頁面裡
+/** 這個瀏覽器目前能不能儲存網頁資料（記住資料庫網址、登入狀態都靠它）。 */
+function storageWorks(){
+  try{ localStorage.setItem('crit.__t', '1'); var ok = localStorage.getItem('crit.__t') === '1'; localStorage.removeItem('crit.__t'); return ok; }catch(e){ return false; }
+}
+/** 是不是從「加到主畫面」的圖示開啟的（這種模式的儲存空間和瀏覽器是分開的）。 */
+function isStandalone(){
+  try{ return window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); }catch(e){ return false; }
+}
 function getApiUrl(){
   migrateScopedKeys(localStorage.getItem('crit.apiUrl') || ''); // 一定要在套用網址參數 ?api= 之前，不然會把舊身分歸給新的那個班
   try{
     var params = new URLSearchParams(location.search);
     var fromQuery = params.get('api');
     if(fromQuery){
-      localStorage.setItem('crit.apiUrl', fromQuery);
-      localStorage.setItem('crit.cls', params.get('cls') || ''); // 學生連結帶 &cls=班級代號；沒帶就是原本的那一班
-      history.replaceState({}, '', location.pathname);
+      var saved = false;
+      try{
+        localStorage.setItem('crit.apiUrl', fromQuery);
+        localStorage.setItem('crit.cls', params.get('cls') || ''); // 學生連結帶 &cls=班級代號；沒帶就是原本的那一班
+        saved = localStorage.getItem('crit.apiUrl') === fromQuery;
+      }catch(e){}
+      if(saved) history.replaceState({}, '', location.pathname);
+      else { memApi = fromQuery; memCls = params.get('cls') || ''; } // 存不起來：網址留在網址列，這次先連得上，重新整理也還在
     } else if(params.has('cls')){
       localStorage.setItem('crit.cls', params.get('cls') || '');
       history.replaceState({}, '', location.pathname);
@@ -512,11 +526,11 @@ function getApiUrl(){
       history.replaceState({}, '', location.pathname + (params.toString() ? '?' + params.toString() : ''));
     }
   }catch(e){}
-  return localStorage.getItem('crit.apiUrl') || '';
+  try{ return localStorage.getItem('crit.apiUrl') || memApi; }catch(e){ return memApi; }
 }
 var apiUrl = getApiUrl();
 // 班級代號：同一個後端可以有好幾個班（見 Code.gs 的多班級），空字串＝原本的那一班。這支裝置目前連的是哪一班。
-var clsId = (function(){ try{ return localStorage.getItem('crit.cls') || ''; }catch(e){ return ''; } })();
+var clsId = (function(){ try{ return localStorage.getItem('crit.cls') || memCls; }catch(e){ return memCls; } })();
 function setApiUrl(u, cls){
   localStorage.setItem('crit.apiUrl', u); apiUrl = u;
   if(cls !== undefined){ clsId = cls || ''; localStorage.setItem('crit.cls', clsId); }
@@ -1185,7 +1199,7 @@ function connectionSectionHtml(){
   );
 }
 function screenConnect(){
-  return '<h1 class="screen-title">連接設定</h1><div class="card">' + connectionSectionHtml() + '</div>';
+  return '<h1 class="screen-title">連接設定</h1>' + envHintHtml() + '<div class="card">' + connectionSectionHtml() + '</div>';
 }
 
 /**
@@ -1350,9 +1364,17 @@ function handleRegisterAwards(assignment, undo){
     });
   }).catch(function(e){ alert('操作沒有成功：'+e.message); });
 }
+/** 連不上資料庫時，依照這支裝置的實際狀況說明可能的原因（不用猜）。 */
+function envHintHtml(){
+  var bits = [];
+  if(!storageWorks()) bits.push('<strong>這個瀏覽器目前不允許網頁儲存資料</strong>（常見原因：「無痕／私密瀏覽」，或封鎖了網站資料），所以記不住資料庫網址和登入狀態。請改用<strong>一般模式</strong>的 Safari 或 Chrome 打開學生連結；iPhone 也可以到「設定 → Safari」確認沒有開「阻擋所有 Cookie」。');
+  if(isStandalone()) bits.push('<strong>你現在是從「主畫面圖示」開啟的</strong>，這種模式的資料和一般瀏覽器是分開的：請到頁面最下面的「連接設定」貼一次資料庫網址；或把主畫面圖示刪掉，先在 Safari 用學生連結開啟，再重新「加入主畫面」。');
+  if(!bits.length) return '';
+  return '<div class="card" style="border-color:var(--warn)">' + bits.map(function(b){ return '<p class="hint" style="color:var(--warn);line-height:1.7;margin:4px 0">⚠️ ' + b + '</p>'; }).join('') + '</div>';
+}
 function screenHome(){
   // 首頁只留身分設定；原本的標題、說明文字、統計數字和使用步驟已經拿掉。
-  var setupHint = !apiUrl ? '<div class="card"><p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址。</p></div>' : '';
+  var setupHint = !apiUrl ? '<div class="card"><p class="hint">尚未連接資料庫，請先到「連接設定」貼上網址，或用老師給的學生連結重新開啟。</p></div>' + envHintHtml() : '';
   return identitySectionHtml() + quickIdentitySwitcherHtml() + honorsHtml() + setupHint;
 }
 
