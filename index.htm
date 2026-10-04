@@ -3339,10 +3339,10 @@ function screenTeacher(){
   var configHtml =
     '<div class="card config-card">' +
       '<form id="teacherConfigForm" class="form">' +
+        '<label class="field"><span>班級名稱（顯示在網頁標題旁邊，最多 20 字；好幾個班共用同一個網頁時，學生和老師一眼就知道這是哪一班）</span><input id="cfg_className" maxlength="20" placeholder="例如：攝影一甲" value="'+escapeAttr(cfg.className||'')+'"></label>' +
         '<label class="field"><span>作業清單（每行一個作業名稱，交作品／作品牆／評分的選單都會用這個）</span><textarea id="cfg_assignments">'+escapeHtml(assignments.join('\n'))+'</textarea></label>' +
         '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
         '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
-        '<label class="field"><span>班級名稱（顯示在網頁標題旁邊，最多 20 字；好幾個班共用同一個網頁時，學生和老師一眼就知道這是哪一班）</span><input id="cfg_className" maxlength="20" placeholder="例如：攝影一甲" value="'+escapeAttr(cfg.className||'')+'"></label>' +
         '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(cfg.teacherPasscode)+'"></label>' +
         '<div class="field"><span>開放作品牆顯示姓名／座號（可以個別設定每份作業，建議該份作業評分截止後再打開）</span>' +
           assignments.map(function(a){
