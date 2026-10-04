@@ -480,7 +480,7 @@ var DEFAULT_QUICK_IDENTITY_TEXT = '第一組\n01 陳大文\n02 林小華\n03 黃
  * 同一支手機打開不同班級的連結，各班各記各的，不會把 A 班的身分帶到 B 班。
  * （作品清單快取 swr 本來就有分班；裝置代碼、字級、目前分頁這些跟班級無關的設定不分。）
  */
-function sk(key){ return key + '@' + hashString(apiUrl || ''); }
+function sk(key){ return key + '@' + hashString((apiUrl || '') + (clsId ? '#' + clsId : '')); }
 /** 舊版的身分資料沒有分班：第一次執行新版時，全部歸給「這支手機原本連的那個班」，其他班一律從頭開始。 */
 function migrateScopedKeys(oldUrl){
   try{
@@ -501,6 +501,10 @@ function getApiUrl(){
     var fromQuery = params.get('api');
     if(fromQuery){
       localStorage.setItem('crit.apiUrl', fromQuery);
+      localStorage.setItem('crit.cls', params.get('cls') || ''); // 學生連結帶 &cls=班級代號；沒帶就是原本的那一班
+      history.replaceState({}, '', location.pathname);
+    } else if(params.has('cls')){
+      localStorage.setItem('crit.cls', params.get('cls') || '');
       history.replaceState({}, '', location.pathname);
     } else if(params.has('_r')){
       // 「強制重新整理」帶來的一次性參數（網址不同，瀏覽器和 CDN 才不會拿舊檔），載入後把它從網址列拿掉
@@ -510,9 +514,17 @@ function getApiUrl(){
   }catch(e){}
   return localStorage.getItem('crit.apiUrl') || '';
 }
-function setApiUrl(u){ localStorage.setItem('crit.apiUrl', u); apiUrl = u; }
-
 var apiUrl = getApiUrl();
+// 班級代號：同一個後端可以有好幾個班（見 Code.gs 的多班級），空字串＝原本的那一班。這支裝置目前連的是哪一班。
+var clsId = (function(){ try{ return localStorage.getItem('crit.cls') || ''; }catch(e){ return ''; } })();
+function setApiUrl(u, cls){
+  localStorage.setItem('crit.apiUrl', u); apiUrl = u;
+  if(cls !== undefined){ clsId = cls || ''; localStorage.setItem('crit.cls', clsId); }
+}
+/** 某個班的學生用連結：同一個網頁＋後端網址＋班級代號。 */
+function studentLinkFor(id){
+  return location.origin + location.pathname + '?api=' + encodeURIComponent(apiUrl || '') + (id ? '&cls=' + encodeURIComponent(id) : '');
+}
 var homeStats = null;
 var honors = null; // 首頁榮譽榜資料（honors API）：每份作業的前三名＋人氣獎，或還沒公布時的進度
 var honorsAssignment = null;
@@ -797,11 +809,13 @@ function apiGet(action, payload){
     if(tp) payload.teacherPass = tp;
   }
   var qs = 'action=' + encodeURIComponent(action || 'home');
+  if(clsId) qs += '&cls=' + encodeURIComponent(clsId);
   if(payload) qs += '&payload=' + encodeURIComponent(JSON.stringify(payload));
   return fetch(apiUrl + '?' + qs, { method:'GET' }).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   }).then(function(json){
+    if(json && json.ok===false && json.error==='no_such_class') throw new Error('找不到這個班級（連結可能打錯了，請向老師確認）');
     if(json && json.ok===false && json.error==='auth'){
       handleAuthFailure();
       throw new Error('請重新登入');
@@ -842,6 +856,7 @@ function postFormNoRead(action, payload, freshTarget){
     form.appendChild(inp);
   }
   addField('action', action);
+  if(clsId) addField('cls', clsId);
   addField('payload', JSON.stringify(payload));
   document.body.appendChild(form);
   form.submit();
@@ -862,7 +877,7 @@ function hashString(str){
 }
 
 // ---------- 先秀上次看到的資料，背景再更新（首頁、作品牆打開不用等那一秒多的空白）----------
-function swrKey(name){ return 'crit.swr.'+name+'.'+hashString(apiUrl||''); }
+function swrKey(name){ return 'crit.swr.'+name+'.'+hashString((apiUrl||'') + (clsId ? '#' + clsId : '')); }
 function swrLoad(name){
   try{ var v = localStorage.getItem(swrKey(name)); return v ? JSON.parse(v) : null; }catch(e){ return null; }
 }
@@ -1146,10 +1161,11 @@ function quickIdentitySwitcherHtml(){
 // ---------- 連接設定 ----------
 function connectionSectionHtml(){
   var current = apiUrl || '';
-  var shareLink = current ? (location.origin + location.pathname + '?api=' + encodeURIComponent(current)) : '';
+  var shareLink = current ? studentLinkFor(clsId) : '';
   return (
     '<div class="form">' +
       '<label class="field"><span>Google Apps Script 網址</span><input id="conn_url" value="'+escapeAttr(current)+'" placeholder="https://script.google.com/macros/s/xxx/exec"></label>' +
+      '<label class="field"><span>班級代號（這個資料庫只有一個班，或你要連的是原本那一班，就留空）</span><input id="conn_cls" maxlength="12" value="'+escapeAttr(clsId)+'" placeholder="例如：B"></label>' +
       '<button type="button" class="btn btn-primary" id="saveConn">儲存連線</button>' +
       (current ?
         ('<hr class="divider">' +
@@ -2996,6 +3012,9 @@ function equipmentAdminHtml(){
       '<h2 class="screen-title" style="font-size:1rem">器材輪借管理</h2>' +
       '<div class="form">' +
         '<label class="field"><span>分組名單（每組一段：第一行是組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="equip_groups" style="min-height:140px">'+escapeHtml(groupsText)+'</textarea></label>' +
+        '<div class="field" style="margin-top:4px"><span>從雲端硬碟匯入名單（Google 試算表最好；也支援 CSV、文字檔、Google 文件）</span>' +
+          '<div style="display:flex;gap:8px"><input id="roster_file" placeholder="貼上檔案連結，或直接輸入檔名" style="flex:1;min-width:0"><button type="button" class="btn btn-accent" id="rosterImportBtn" style="flex:none">讀取名單</button></div>' +
+          '<p class="hint" id="rosterImportNote" style="margin-top:6px">會自動認「座號／姓名／組別」欄位（沒有標題列就當作第一欄座號、第二欄姓名、第三欄組別）。讀到之後會先放進上面的欄位讓你檢查，按「儲存分組名單」才會真正存起來。Excel 檔請先在雲端硬碟用 Google 試算表開啟並另存。</p></div>' +
         '<button type="button" class="btn btn-primary" id="equipSaveGroups">儲存分組名單</button>' +
         '<hr class="divider">' +
         (groupsHtml || '<p class="hint">請先儲存分組名單。</p>') +
@@ -3055,6 +3074,41 @@ function handleEquipAction(action, extra){
     equipmentData = res.equipment;
     render();
   }).catch(function(e){ setToast('error','操作失敗：'+e.message); render(); });
+}
+/** 從雲端硬碟讀名單，填進分組名單欄位（不會自動儲存，讓老師先檢查）。 */
+function rosterErrorText(res){
+  var d = res.detail ? '（' + res.detail + '）' : '';
+  switch(res.error){
+    case 'no_file': return '請先貼上檔案連結或輸入檔名。';
+    case 'file_not_found': return '找不到這個檔案。請確認：檔案在你登入 Google 的這個雲端硬碟裡（或有分享給你），連結完整，或檔名沒有打錯。' + d;
+    case 'unsupported_type': return '這種檔案讀不了（' + (res.detail || '') + '）。Excel、Word、PDF 請先在雲端硬碟用 Google 試算表開啟，另存成 Google 試算表，再貼新的連結。';
+    case 'no_students': return '檔案「' + (res.fileName || '') + '」裡讀不到學生。請確認有「座號」和「姓名」兩欄。';
+    case 'read_failed': return '讀取檔案失敗：' + (res.detail || '');
+    case 'unauthorized': return '教師密語不對。';
+    default: return '讀取失敗：' + (res.error || 'unknown') + '（也可能是 Code.gs 還沒更新到最新版）';
+  }
+}
+function handleRosterImport(){
+  var input = document.getElementById('roster_file'), note = document.getElementById('rosterImportNote'), btn = document.getElementById('rosterImportBtn');
+  var ref = input ? input.value.trim() : '';
+  if(!ref){ alert('請先貼上雲端硬碟檔案的連結，或輸入檔名。'); return; }
+  var pass = teacherAuthPasscode();
+  if(!pass){ alert('教師密語已失效，請重新登入教師專區。'); return; }
+  var area = document.getElementById('equip_groups');
+  if(area && area.value.trim() && !confirm('這會把上面「分組名單」欄位的內容換成檔案裡的名單（還沒按「儲存分組名單」之前不會真的存起來）。要繼續嗎？')) return;
+  if(btn){ btn.disabled = true; btn.textContent = '讀取中...'; }
+  apiGet('rosterFromFile', { passcode: pass, file: ref }).then(function(res){
+    if(btn){ btn.disabled = false; btn.textContent = '讀取名單'; }
+    if(!res || !res.ok){ if(note) note.textContent = rosterErrorText(res || {}); alert(rosterErrorText(res || {})); return; }
+    if(area) area.value = res.groupsText;
+    var msg = '已讀到「' + res.fileName + '」（' + res.fileType + '）：' + res.count + ' 位同學、' + res.groupCount + ' 組。請檢查上面的名單，沒問題再按「儲存分組名單」。' + ((res.warnings||[]).length ? '\n注意：' + res.warnings.join('；') : '');
+    if(note) note.textContent = msg;
+    if(area && area.scrollIntoView) area.scrollIntoView({ behavior:'smooth', block:'center' });
+  }).catch(function(e){
+    if(btn){ btn.disabled = false; btn.textContent = '讀取名單'; }
+    if(note) note.textContent = '讀取失敗：' + e.message;
+    alert('讀取失敗：' + e.message);
+  });
 }
 function handleEquipSaveGroups(){
   var text = document.getElementById('equip_groups').value;
@@ -3442,7 +3496,8 @@ function screenTeacher(){
       return accountsDataSectionHtml();
     },
     settings: function(){
-      return h2('教師設定') + configHtml + equipmentAdminHtml() + dangerZoneHtml;
+      setTimeout(function(){ loadClassList(); }, 200);
+      return h2('教師設定') + configHtml + equipmentAdminHtml() + classManagerHtml() + dangerZoneHtml;
     }
   };
   // 不再另外放大標題：目前是哪一頁，選單上亮起來的分頁就已經看得出來，標題只是重複佔高度。
@@ -3938,6 +3993,89 @@ function resetGuardHtml(cfg){
     '<p class="hint">按下去之後，系統會先把整份試算表<strong>備份到雲端硬碟</strong>（和這份試算表放在同一個資料夾），備份成功才會開始清除。</p>' +
     '<button type="button" class="btn" style="background:var(--low);color:#fff;width:100%" id="resetAllDataBtn">永久刪除所有作品與評分，還原成初始狀態</button>';
 }
+// ---------- 班級管理：同一個後端開好幾個班 ----------
+var classList = null;       // [{id,name}]，id 空字串＝原本那一班
+var classListLoading = false;
+function loadClassList(force){
+  if(classListLoading || (classList && !force)) return;
+  var pass = teacherAuthPasscode();
+  if(!pass || !apiUrl) return;
+  classListLoading = true;
+  apiGet('listClasses', { passcode: pass }).then(function(res){
+    classListLoading = false;
+    if(res && res.ok){ classList = res.classes || []; if(getRole()==='teacher' && teacherTab==='settings' && !isEditingFormField()) render(); }
+    else { classList = []; }
+  }).catch(function(){ classListLoading = false; classList = []; });
+}
+function classManagerHtml(){
+  var cur = clsId;
+  var rows = (classList || []).map(function(c){
+    var isCur = c.id === cur;
+    return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)">' +
+      '<div style="flex:1;min-width:8em"><strong>'+escapeHtml(c.name || '（還沒取名）')+'</strong> <span class="hint">'+(c.id ? '代號 '+escapeHtml(c.id) : '原本的班')+'</span>' + (isCur ? ' <span class="award-tag">目前</span>' : '') + '</div>' +
+      '<button type="button" class="btn btn-accent" data-copy-class="'+escapeAttr(c.id)+'" style="flex:none">複製學生連結</button>' +
+      (isCur ? '' : '<button type="button" class="btn btn-accent" data-switch-class="'+escapeAttr(c.id)+'" style="flex:none">切換到這班</button>') +
+    '</div>';
+  }).join('');
+  return '<div class="card config-card">' +
+    '<h2 class="screen-title" style="font-size:1rem">班級管理</h2>' +
+    '<p class="hint">這個資料庫裡的所有班級。每個班的作品、評分、名單、密碼、教師密語都完全分開，新增班級不用再複製試算表。</p>' +
+    (classList ? (rows || '<p class="hint">（沒有讀到班級）</p>') : '<p class="hint">載入中...</p>') +
+    '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">＋ 新增班級</summary>' +
+      '<div class="form" style="margin-top:8px">' +
+        '<label class="field"><span>班級代號（用在學生連結，1～12 個英數字或中文，建好之後不能改）</span><input id="cm_id" maxlength="12" placeholder="例如：B 或 乙"></label>' +
+        '<label class="field"><span>班級名稱（顯示在網頁標題旁邊）</span><input id="cm_name" maxlength="20" placeholder="例如：攝影二乙"></label>' +
+        '<label class="field"><span>這個班的教師密語（至少 4 個字，要和別班不一樣）</span><input id="cm_pass" placeholder="新的教師密語"></label>' +
+        '<label class="toggle-row"><input type="checkbox" id="cm_copy" checked> 沿用目前這個班的作業清單、評分題目、每人評幾件、公開門檻</label>' +
+        '<label class="field"><span>班級名單（選填，雲端硬碟檔案連結或檔名；沒填之後可以在新班的設定裡匯入）</span><input id="cm_file" placeholder="貼上 Google 試算表連結，或輸入檔名"></label>' +
+        '<button type="button" class="btn btn-primary" id="createClassBtn">新增班級</button>' +
+        '<p class="hint" id="createClassNote"></p>' +
+      '</div></details>' +
+  '</div>';
+}
+function copyText(text, done){
+  var fin = done || function(){};
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(fin).catch(function(){ prompt('請複製這個連結：', text); }); }
+  else { prompt('請複製這個連結：', text); }
+}
+function createClassErrorText(res){
+  switch(res.error){
+    case 'bad_class_id': return '班級代號只能是 1～12 個英數字或中文，不能有空白或符號。';
+    case 'class_exists': return '已經有這個代號的班級了，請換一個。';
+    case 'passcode_too_short': return '教師密語至少要 4 個字。';
+    case 'unauthorized': return '教師密語不對。';
+    case 'roster_failed': return '名單讀不到，所以沒有建立班級：' + rosterErrorText({ error: res.rosterError, detail: res.detail, fileName: res.fileName });
+    default: return '新增失敗：' + (res.error || 'unknown') + '（也可能是 Code.gs 還沒更新到最新版）';
+  }
+}
+function handleCreateClass(){
+  var id = (document.getElementById('cm_id').value || '').trim();
+  var name = (document.getElementById('cm_name').value || '').trim();
+  var pass = (document.getElementById('cm_pass').value || '').trim();
+  var copy = !!document.getElementById('cm_copy').checked;
+  var file = (document.getElementById('cm_file').value || '').trim();
+  var note = document.getElementById('createClassNote'), btn = document.getElementById('createClassBtn');
+  if(!id){ alert('請輸入班級代號。'); return; }
+  if(!name){ alert('請輸入班級名稱。'); return; }
+  if(pass.length < 4){ alert('教師密語至少要 4 個字。'); return; }
+  var auth = teacherAuthPasscode();
+  if(!auth){ alert('教師密語已失效，請重新登入教師專區。'); return; }
+  if(!confirm('要新增班級「' + name + '」（代號 ' + id + '）嗎？')) return;
+  if(btn){ btn.disabled = true; btn.textContent = '建立中...'; }
+  apiGet('createClass', { passcode: auth, classId: id, className: name, newPasscode: pass, copySettings: copy, rosterFile: file }).then(function(res){
+    if(btn){ btn.disabled = false; btn.textContent = '新增班級'; }
+    if(!res || !res.ok){ var t = createClassErrorText(res || {}); if(note) note.textContent = t; alert(t); return; }
+    var link = studentLinkFor(id);
+    if(note) note.textContent = '已建立「' + res.className + '」' + (res.imported ? '，並匯入 ' + res.imported + ' 位同學（' + res.fileName + '）' : '') + '。學生連結已複製，直接貼給這個班的同學。';
+    copyText(link, function(){});
+    ['cm_id','cm_name','cm_pass','cm_file'].forEach(function(k){ var el = document.getElementById(k); if(el) el.value = ''; });
+    alert('班級「' + res.className + '」建立完成！\n\n學生連結（已複製）：\n' + link + '\n\n要管理這個班，請按「切換到這班」，再用它的教師密語登入。');
+    loadClassList(true);
+  }).catch(function(e){
+    if(btn){ btn.disabled = false; btn.textContent = '新增班級'; }
+    alert('新增失敗：' + e.message);
+  });
+}
 function handleResetAllData(){
   var input = document.getElementById('reset_confirm_pass');
   var typed = input ? input.value.trim() : '';
@@ -4013,7 +4151,8 @@ function handleExportCsv(){
 function handleSaveConnection(form){
   var url = form.querySelector('#conn_url').value.trim();
   if(!url){ alert('請貼上網址'); return; }
-  setApiUrl(url);
+  var clsInput = form.querySelector('#conn_cls');
+  setApiUrl(url, clsInput ? clsInput.value.trim() : undefined);
   setToast('success', '連線已儲存');
   render();
   loadHome();
@@ -4305,6 +4444,16 @@ function attachHandlers(){
     if(e.target.closest('#slideClose')){ stopSlideTimer(); slideshowIndex = null; slideReviewsOpen = false; exitFullscreenIfActive(); render(); return; }
     var rvBtn = e.target.closest('[data-reviews-toggle]');
     if(rvBtn && slideshowIndex != null){ setReviewsPanel(!slideReviewsOpen); return; }
+    if(e.target.closest('#rosterImportBtn')){ handleRosterImport(); return; }
+    if(e.target.closest('#createClassBtn')){ handleCreateClass(); return; }
+    var copyCls = e.target.closest('[data-copy-class]');
+    if(copyCls){ var cid = copyCls.getAttribute('data-copy-class'); copyText(studentLinkFor(cid), function(){ setToast('success', '已複製這個班的學生連結'); render(); }); return; }
+    var switchCls = e.target.closest('[data-switch-class]');
+    if(switchCls){
+      var sid = switchCls.getAttribute('data-switch-class');
+      if(confirm('要切換到這個班嗎？頁面會重新載入，之後要用那個班的教師密語登入。')) location.href = studentLinkFor(sid);
+      return;
+    }
     var attBtn = e.target.closest('[data-att-bonus]');
     if(attBtn){ handleAttendanceBonus(attBtn.getAttribute('data-seat'), attBtn.getAttribute('data-name'), parseInt(attBtn.getAttribute('data-att-bonus'),10)); return; }
     var honorsChip = e.target.closest('[data-honors-assignment]');
