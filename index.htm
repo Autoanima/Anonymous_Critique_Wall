@@ -3077,6 +3077,8 @@ function equipmentAdminHtml(){
         '<label class="field"><span>分組名單（每組一段：第一行是組名，接下來每行「座號 姓名」，組跟組之間空一行）</span><textarea id="equip_groups" style="min-height:140px">'+escapeHtml(groupsText)+'</textarea></label>' +
         '<div class="field" style="margin-top:4px"><span>從雲端硬碟匯入名單（Google 試算表最好；也支援 CSV、文字檔、Google 文件）</span>' +
           '<div style="display:flex;gap:8px"><input id="roster_file" placeholder="貼上檔案連結，或直接輸入檔名" style="flex:1;min-width:0"><button type="button" class="btn btn-accent" id="rosterImportBtn" style="flex:none">讀取名單</button></div>' +
+          '<div style="margin-top:8px"><button type="button" class="btn btn-accent" id="rosterLocalBtn" style="width:100%">📱 從這支手機選檔案（CSV、文字檔、Excel）</button>' +
+          '<input type="file" id="roster_local" hidden accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></div>' +
           '<p class="hint" id="rosterImportNote" style="margin-top:6px">會自動認「座號／姓名／組別」欄位（沒有標題列就當作第一欄座號、第二欄姓名、第三欄組別）。讀到之後會先放進上面的欄位讓你檢查，按「儲存分組名單」才會真正存起來。Excel 檔請先在雲端硬碟用 Google 試算表開啟並另存。</p></div>' +
         '<button type="button" class="btn btn-primary" id="equipSaveGroups">儲存分組名單</button>' +
         '<hr class="divider">' +
@@ -3139,6 +3141,103 @@ function handleEquipAction(action, extra){
   }).catch(function(e){ setToast('error','操作失敗：'+e.message); render(); });
 }
 /** 從雲端硬碟讀名單，填進分組名單欄位（不會自動儲存，讓老師先檢查）。 */
+// ---------- 手機上的名單檔案：在手機上直接讀（CSV／文字檔／Excel），不用先傳到雲端硬碟 ----------
+// 解析規則和 Code.gs 的 rosterFromRows 完全一樣：標題列有「座號／姓名／組別」就照標題，沒有就當第一欄座號、第二欄姓名、第三欄組別。
+function rosterSeatClient(v){
+  var t = toHalfWidth(String(v == null ? '' : v)).replace(/\s+/g, '').replace(/號$/, '');
+  if(!t) return '';
+  return /^\d+$/.test(t) ? cleanSeat(String(parseInt(t, 10))) : t;
+}
+function rosterTextToRowsClient(text){
+  var delim = text.indexOf('\t') >= 0 ? 'tab' : (/[,，]/.test(text) ? 'comma' : 'space');
+  return String(text).split(/\r?\n/).map(function(line){
+    line = line.trim();
+    if(!line) return [];
+    if(delim === 'tab') return line.split('\t');
+    if(delim === 'comma') return line.split(/[,，]/);
+    return line.split(/\s+/);
+  });
+}
+function rosterFromRowsClient(rows){
+  rows = rows.map(function(r){ return r.map(function(c){ return String(c == null ? '' : c).trim(); }); }).filter(function(r){ return r.some(function(c){ return c; }); });
+  var SEAT_RE = /座號|座位|號碼|學號|^號$|^no\.?$/i, NAME_RE = /姓名|名字|學生|^name$/i, GROUP_RE = /組別|分組|小組|^組$|^group$/i;
+  var seatCol = -1, nameCol = -1, groupCol = -1, start = 0;
+  for(var i = 0; i < Math.min(6, rows.length) && seatCol < 0; i++){
+    var sc = -1, nc = -1, gc = -1;
+    rows[i].forEach(function(c, j){ if(sc < 0 && SEAT_RE.test(c)) sc = j; else if(nc < 0 && NAME_RE.test(c)) nc = j; else if(gc < 0 && GROUP_RE.test(c)) gc = j; });
+    if(sc >= 0 && nc >= 0){ seatCol = sc; nameCol = nc; groupCol = gc; start = i + 1; }
+  }
+  if(seatCol < 0){
+    seatCol = 0; nameCol = 1;
+    var withThird = rows.filter(function(r){ return r[2]; }).length;
+    groupCol = (rows.length && withThird >= rows.length / 2) ? 2 : -1;
+  }
+  var groups = [], byName = {}, seen = {}, skipped = 0, warnings = [];
+  rows.slice(start).forEach(function(r){
+    var seat = rosterSeatClient(r[seatCol]), name = String(r[nameCol] || '').trim();
+    if(!seat || !name){ skipped++; return; }
+    var key = normSeat(seat);
+    if(seen[key]){ warnings.push('座號 ' + seat + ' 重複（' + seen[key] + '、' + name + '），只保留前面那一位'); return; }
+    seen[key] = name;
+    var gname = groupCol >= 0 ? (r[groupCol] || '未分組') : '全班';
+    if(!byName[gname]){ byName[gname] = { name: gname, members: [] }; groups.push(byName[gname]); }
+    byName[gname].members.push({ seat: seat, name: name });
+  });
+  groups.forEach(function(g){ g.members.sort(function(a, b){ return (parseInt(a.seat, 10) || 0) - (parseInt(b.seat, 10) || 0); }); });
+  if(skipped) warnings.push(skipped + ' 列缺少座號或姓名，已略過');
+  if(groupCol < 0) warnings.push('檔案裡沒有「組別」欄位，全部放在「全班」一組；要分組請之後自己在名單裡調整');
+  var count = groups.reduce(function(a, g){ return a + g.members.length; }, 0);
+  var groupsText = groups.map(function(g){ return g.name + '\n' + g.members.map(function(m){ return m.seat + ' ' + m.name; }).join('\n'); }).join('\n\n');
+  return { groups: groups, count: count, warnings: warnings, groupsText: groupsText };
+}
+/** 讀文字檔：先當 UTF-8，如果出現亂碼符號就改用 Big5（台灣的 Excel 常存成 Big5 的 CSV）。 */
+function readFileAsTextSmart(file){
+  return file.arrayBuffer().then(function(buf){
+    var utf8 = new TextDecoder('utf-8').decode(buf);
+    if(utf8.indexOf('�') >= 0){ try{ return new TextDecoder('big5').decode(buf); }catch(e){} }
+    return utf8.replace(/^﻿/, '');
+  });
+}
+var XLSX_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+/** 要讀 Excel 檔才會載入讀取工具（平常不載入，不拖慢網頁）。 */
+function loadExcelReader(){
+  return new Promise(function(resolve, reject){
+    if(window.XLSX) return resolve(window.XLSX);
+    var sc = document.createElement('script');
+    sc.src = XLSX_CDN; sc.async = true;
+    sc.onload = function(){ window.XLSX ? resolve(window.XLSX) : reject(new Error('excel_reader_missing')); };
+    sc.onerror = function(){ reject(new Error('excel_reader_failed')); };
+    document.head.appendChild(sc);
+  });
+}
+/** 讀手機上選的名單檔案，回傳和雲端硬碟匯入一樣的結果格式（{ok, fileName, fileType, count, groups, groupsText, warnings}）。 */
+function parseLocalRosterFile(file){
+  var name = file.name || '檔案';
+  if(/\.(xlsx|xlsm|xls)$/i.test(name)){
+    return Promise.all([loadExcelReader(), file.arrayBuffer()]).then(function(parts){
+      var XLSX = parts[0];
+      var wb = XLSX.read(parts[1], { type: 'array' });
+      var pick = wb.SheetNames[0];
+      for(var i = 0; i < wb.SheetNames.length; i++){ if(/名單|座號|roster/i.test(wb.SheetNames[i])){ pick = wb.SheetNames[i]; break; } }
+      var rows = XLSX.utils.sheet_to_json(wb.Sheets[pick], { header: 1, raw: false, defval: '' });
+      return finishLocalRoster(name, 'Excel', rows);
+    }).catch(function(e){
+      if(e && /excel_reader/.test(e.message)) return { ok: false, error: 'excel_reader_failed', fileName: name };
+      return { ok: false, error: 'read_failed', detail: e && e.message, fileName: name };
+    });
+  }
+  if(/\.(csv|txt|tsv)$/i.test(name) || /^text\//.test(file.type || '')){
+    return readFileAsTextSmart(file).then(function(text){ return finishLocalRoster(name, '文字檔', rosterTextToRowsClient(text)); })
+      .catch(function(e){ return { ok: false, error: 'read_failed', detail: e && e.message, fileName: name }; });
+  }
+  return Promise.resolve({ ok: false, error: 'unsupported_local', detail: file.type || name, fileName: name });
+}
+function finishLocalRoster(fileName, fileType, rows){
+  var r = rosterFromRowsClient(rows);
+  if(!r.count) return { ok: false, error: 'no_students', fileName: fileName };
+  r.ok = true; r.fileName = fileName; r.fileType = fileType; r.groupCount = r.groups.length;
+  return r;
+}
 function rosterErrorText(res){
   var d = res.detail ? '（' + res.detail + '）' : '';
   switch(res.error){
@@ -3146,7 +3245,9 @@ function rosterErrorText(res){
     case 'file_not_found': return '找不到這個檔案。請確認：檔案在你登入 Google 的這個雲端硬碟裡（或有分享給你），連結完整，或檔名沒有打錯。' + d;
     case 'unsupported_type': return '這種檔案讀不了（' + (res.detail || '') + '）。Excel、Word、PDF 請先在雲端硬碟用 Google 試算表開啟，另存成 Google 試算表，再貼新的連結。';
     case 'no_students': return '檔案「' + (res.fileName || '') + '」裡讀不到學生。請確認有「座號」和「姓名」兩欄。';
+    case 'unsupported_local': return '這種檔案讀不了（' + (res.fileName || res.detail || '') + '）。請選 CSV、文字檔或 Excel（.xlsx、.xls）；Word、PDF 請先轉成 Excel 或 CSV。';
     case 'read_failed': return '讀取檔案失敗：' + (res.detail || '');
+    case 'excel_reader_failed': return '需要網路才能讀 Excel 檔（要先載入讀取工具），現在載入失敗。請確認網路，或把檔案另存成 CSV 再選一次。';
     case 'unauthorized': return '教師密語不對。';
     default: return '讀取失敗：' + (res.error || 'unknown') + '（也可能是 Code.gs 還沒更新到最新版）';
   }
@@ -3162,17 +3263,47 @@ function handleRosterImport(){
   if(btn){ btn.disabled = true; btn.textContent = '讀取中...'; }
   apiGet('rosterFromFile', { passcode: pass, file: ref }).then(function(res){
     if(btn){ btn.disabled = false; btn.textContent = '讀取名單'; }
-    if(!res || !res.ok){ if(note) note.textContent = rosterErrorText(res || {}); alert(rosterErrorText(res || {})); return; }
-    if(area) area.value = res.groupsText;
-    var msg = '已讀到「' + res.fileName + '」（' + res.fileType + '）：' + res.count + ' 位同學、' + res.groupCount + ' 組。請檢查上面的名單，沒問題再按「儲存分組名單」。' + ((res.warnings||[]).length ? '\n注意：' + res.warnings.join('；') : '');
-    if(note) note.textContent = msg;
-    if(area && area.scrollIntoView) area.scrollIntoView({ behavior:'smooth', block:'center' });
+    applyRosterResult(res);
   }).catch(function(e){
     if(btn){ btn.disabled = false; btn.textContent = '讀取名單'; }
     if(note) note.textContent = '讀取失敗：' + e.message;
     alert('讀取失敗：' + e.message);
   });
 }
+/** 把整理好的名單放進「分組名單」欄位（不會自動儲存，讓老師先檢查）。雲端硬碟和手機檔案共用。 */
+function applyRosterResult(res){
+  var area = document.getElementById('equip_groups'), note = document.getElementById('rosterImportNote');
+  if(!res || !res.ok){ var t = rosterErrorText(res || {}); if(note) note.textContent = t; alert(t); return false; }
+  if(area) area.value = res.groupsText;
+  var msg = '已讀到「' + res.fileName + '」（' + res.fileType + '）：' + res.count + ' 位同學、' + res.groupCount + ' 組。請檢查上面的名單，沒問題再按「儲存分組名單」。' + ((res.warnings || []).length ? '\n注意：' + res.warnings.join('；') : '');
+  if(note) note.textContent = msg;
+  if(area && area.scrollIntoView) area.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return true;
+}
+function handleRosterLocalFile(file){
+  var area = document.getElementById('equip_groups'), note = document.getElementById('rosterImportNote');
+  if(area && area.value.trim() && !confirm('這會把上面「分組名單」欄位的內容換成檔案裡的名單（還沒按「儲存分組名單」之前不會真的存起來）。要繼續嗎？')) return;
+  if(note) note.textContent = '讀取「' + file.name + '」中...';
+  parseLocalRosterFile(file).then(applyRosterResult).catch(function(e){ alert('讀取失敗：' + e.message); });
+}
+var cmLocalRoster = null; // 新增班級時，手機上選好的名單 { fileName, count, groups }
+function handleCreateClassLocalFile(file){
+  var note = document.getElementById('cmLocalNote');
+  if(note) note.textContent = '讀取「' + file.name + '」中...';
+  parseLocalRosterFile(file).then(function(res){
+    if(!res || !res.ok){ cmLocalRoster = null; var t = rosterErrorText(res || {}); if(note) note.textContent = t; alert(t); return; }
+    cmLocalRoster = { fileName: res.fileName, count: res.count, groups: res.groups };
+    if(note) note.textContent = '已選好「' + res.fileName + '」：' + res.count + ' 位同學、' + res.groupCount + ' 組，建立班級時會一起匯入。' + ((res.warnings || []).length ? '\n注意：' + res.warnings.join('；') : '');
+  });
+}
+document.addEventListener('change', function(e){
+  var t = e.target;
+  if(!t || t.type !== 'file' || !t.files || !t.files[0]) return;
+  var file = t.files[0];
+  if(t.id === 'roster_local') handleRosterLocalFile(file);
+  else if(t.id === 'cm_local') handleCreateClassLocalFile(file);
+  try{ t.value = ''; }catch(err){} // 讓同一個檔案可以再選一次
+});
 function handleEquipSaveGroups(){
   var text = document.getElementById('equip_groups').value;
   handleEquipAction('equipmentSetGroups', { groups: parseGroupsText(text) });
@@ -4090,7 +4221,10 @@ function classManagerHtml(){
         '<label class="field"><span>班級名稱（顯示在網頁標題旁邊）</span><input id="cm_name" maxlength="20" placeholder="例如：攝影二乙"></label>' +
         '<label class="field"><span>這個班的教師密語（至少 4 個字，要和別班不一樣）</span><input id="cm_pass" placeholder="新的教師密語"></label>' +
         '<label class="toggle-row"><input type="checkbox" id="cm_copy" checked> 沿用目前這個班的作業清單、評分題目、每人評幾件、公開門檻</label>' +
-        '<label class="field"><span>班級名單（選填，雲端硬碟檔案連結或檔名；沒填之後可以在新班的設定裡匯入）</span><input id="cm_file" placeholder="貼上 Google 試算表連結，或輸入檔名"></label>' +
+        '<label class="field"><span>班級名單（選填；沒填之後可以在新班的設定裡匯入）</span><input id="cm_file" placeholder="貼上雲端硬碟檔案連結，或輸入檔名"></label>' +
+        '<button type="button" class="btn btn-accent" id="cmLocalBtn">📱 或從這支手機選名單檔案</button>' +
+        '<input type="file" id="cm_local" hidden accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">' +
+        '<p class="hint" id="cmLocalNote" style="white-space:pre-line">'+(cmLocalRoster ? '已選好「'+escapeHtml(cmLocalRoster.fileName)+'」：'+cmLocalRoster.count+' 位同學，建立班級時會一起匯入。' : '')+'</p>' +
         '<button type="button" class="btn btn-primary" id="createClassBtn">新增班級</button>' +
         '<p class="hint" id="createClassNote"></p>' +
       '</div></details>' +
@@ -4125,13 +4259,16 @@ function handleCreateClass(){
   if(!auth){ alert('教師密語已失效，請重新登入教師專區。'); return; }
   if(!confirm('要新增班級「' + name + '」（代號 ' + id + '）嗎？')) return;
   if(btn){ btn.disabled = true; btn.textContent = '建立中...'; }
-  apiGet('createClass', { passcode: auth, classId: id, className: name, newPasscode: pass, copySettings: copy, rosterFile: file }).then(function(res){
+  var createPayload = { passcode: auth, classId: id, className: name, newPasscode: pass, copySettings: copy, rosterFile: file };
+  if(cmLocalRoster){ createPayload.rosterGroups = cmLocalRoster.groups; createPayload.rosterFileName = cmLocalRoster.fileName; createPayload.rosterFile = ''; }
+  apiGet('createClass', createPayload).then(function(res){
     if(btn){ btn.disabled = false; btn.textContent = '新增班級'; }
     if(!res || !res.ok){ var t = createClassErrorText(res || {}); if(note) note.textContent = t; alert(t); return; }
     var link = studentLinkFor(id);
     if(note) note.textContent = '已建立「' + res.className + '」' + (res.imported ? '，並匯入 ' + res.imported + ' 位同學（' + res.fileName + '）' : '') + '。學生連結已複製，直接貼給這個班的同學。';
     copyText(link, function(){});
     ['cm_id','cm_name','cm_pass','cm_file'].forEach(function(k){ var el = document.getElementById(k); if(el) el.value = ''; });
+    cmLocalRoster = null; var cmNote = document.getElementById('cmLocalNote'); if(cmNote) cmNote.textContent = '';
     alert('班級「' + res.className + '」建立完成！\n\n學生連結（已複製）：\n' + link + '\n\n要管理這個班，請按「切換到這班」，再用它的教師密語登入。');
     loadClassList(true);
   }).catch(function(e){
@@ -4511,6 +4648,8 @@ function attachHandlers(){
     var rvBtn = e.target.closest('[data-reviews-toggle]');
     if(rvBtn && slideshowIndex != null){ setReviewsPanel(!slideReviewsOpen); return; }
     if(e.target.closest('#homeConnectBtn')){ handleHomeConnect(); return; }
+    if(e.target.closest('#rosterLocalBtn')){ var rl = document.getElementById('roster_local'); if(rl) rl.click(); return; }
+    if(e.target.closest('#cmLocalBtn')){ var cl = document.getElementById('cm_local'); if(cl) cl.click(); return; }
     if(e.target.closest('#rosterImportBtn')){ handleRosterImport(); return; }
     if(e.target.closest('#createClassBtn')){ handleCreateClass(); return; }
     var copyCls = e.target.closest('[data-copy-class]');
