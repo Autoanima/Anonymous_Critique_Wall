@@ -83,6 +83,9 @@ button,input,textarea{font-family:inherit;}
 .teacher-tabs-row{display:flex;align-items:center;gap:8px;}
 .teacher-tabs-row .tabs-scroll{flex:1;min-width:0;}
 .teacher-tabs-row #equipStartPauseToggle{flex:none;padding:6px 14px;font-size:0.82rem;background:var(--accent-soft);color:var(--accent-strong);border-color:var(--accent);font-weight:700;white-space:nowrap;}
+.teacher-tabs-row #equipStopTimer,.teacher-tabs-row #equipResetTimer{flex:none;padding:6px 8px;font-size:0.78rem;}
+@media(max-width:360px){.teacher-bar{flex-wrap:wrap;}.teacher-tabs-row{gap:4px;}.teacher-tabs-row #equipStartPauseToggle{padding:6px 8px;}}
+.field input.cfg-period-start,.field input.cfg-period-end{min-width:0;width:0;flex:1;padding:8px 4px;}
 .settings-fold{margin-top:10px;}
 .settings-fold>summary{cursor:pointer;font-weight:700;padding:4px 0;}
 .navbtn-select{-webkit-appearance:none;appearance:none;text-align:center;text-align-last:center;padding-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -635,9 +638,9 @@ function deriveTeacherGalleryData(){
   return {
     rows: (teacherView.rows||[]).map(function(r){
       return { workCode:r.workCode, studentName:r.studentName, studentSeat:r.studentSeat, title:r.title, assignment:r.assignment,
-               driveLink:r.driveLink, perCrit:r.perCrit, overall:r.overall, baseOverall:r.baseOverall, bonus:r.bonus||0, bonusNote:r.bonusNote||null, returned:r.returned||null, count:r.count, unlocked:true };
+               driveLink:r.driveLink, criteria:r.criteria, perCrit:r.perCrit, overall:r.overall, baseOverall:r.baseOverall, bonus:r.bonus||0, bonusNote:r.bonusNote||null, returned:r.returned||null, count:r.count, unlocked:true };
     }),
-    criteria: cfg.criteria, assignments: cfg.assignments||[],
+    criteria: criteriaUnionClient(teacherView.rows.map(function(r){return r.criteria||cfg.criteria;})), assignmentCriteria: cfg.assignmentCriteria||{}, assignments: cfg.assignments||[],
     revealMinReviewers: cfg.revealMinReviewers, revealMinReviews: cfg.revealMinReviews, revealProgress: {}
   };
 }
@@ -1641,6 +1644,7 @@ function assignmentTextColorFor(assignments, a){
 function radarChartSvg(criteria, perCrit, size, fontScale){
   var n = criteria.length;
   if(!n) return '';
+  if(n<3) return '<div style="padding:16px">'+criteria.map(function(c){var v=perCrit[c.key];return '<div style="margin-bottom:16px"><div>'+escapeHtml(c.label)+'：'+(v==null?'—':v.toFixed(2))+'</div><div style="height:10px;background:rgba(255,255,255,0.2);border-radius:5px"><div style="height:100%;width:'+(v==null?0:Math.min(100,v/5*100))+'%;background:var(--accent);border-radius:5px"></div></div></div>';}).join('')+'</div>';
   var cx = size/2, cy = size/2, r = size*0.34, maxVal = 5;
   function pointFor(i, val){
     var angle = (Math.PI*2*i/n) - Math.PI/2;
@@ -1725,8 +1729,9 @@ function screenGallery(){
   }
   var assignmentOptions = '<option value="">全部作業</option>' +
     (galleryData.assignments||[]).map(function(a){ return '<option value="'+escapeAttr(a)+'"'+(galleryAssignment===a?' selected':'')+'>'+escapeHtml(a)+'</option>'; }).join('');
+  var displayedCriteria=criteriaUnionClient(rows.map(function(r){return r.criteria||galleryData.criteria;}));
   var sortOptions = '<option value="overall"'+(gallerySort==='overall'?' selected':'')+'>總平均（預設）</option>' +
-    galleryData.criteria.map(function(c){ return '<option value="'+escapeAttr(c.key)+'"'+(gallerySort===c.key?' selected':'')+'>'+escapeHtml(c.label)+'</option>'; }).join('');
+    displayedCriteria.map(function(c){ return '<option value="'+escapeAttr(c.key)+'"'+(gallerySort===c.key?' selected':'')+'>'+escapeHtml(c.label)+'</option>'; }).join('');
   // data-idx 一定要對應「完整排序結果」裡的位置，不能是切片後的相對位置，
   // 不然點卡片開投影展示會抓錯作品——所以先算好全部卡片，最後才切要顯示幾張。
   var allCards = rows.map(function(r, i){
@@ -1770,9 +1775,10 @@ function screenGallery(){
 }
 function galleryTableHtml(rows){
   if(!rows.length) return '<div class="card"><p class="hint">這份作業目前還沒有作品。</p></div>';
-  var head = galleryData.criteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
+  var tableCriteria=criteriaUnionClient(rows.map(function(r){return r.criteria||galleryData.criteria;}));
+  var head = tableCriteria.map(function(c){ return '<th>'+escapeHtml(c.label)+'</th>'; }).join('');
   var body = rows.map(function(r, i){
-    var cells = galleryData.criteria.map(function(c){
+    var cells = tableCriteria.map(function(c){
       var v = r.perCrit[c.key];
       return '<td class="num">'+(galleryShowScores ? (v==null?'—':v.toFixed(1)) : '—')+'</td>';
     }).join('');
@@ -1801,10 +1807,11 @@ function slideshowHtml(){
   var scale = getSlideFontScale();
   var aColor = assignmentColorFor(galleryData.assignments, r.assignment);
   var aText = assignmentTextColorFor(galleryData.assignments, r.assignment);
-  var hasScores = galleryData.criteria.some(function(c){ return r.perCrit[c.key]!=null; });
+  var workCriteria=r.criteria||galleryData.criteria;
+  var hasScores = workCriteria.some(function(c){ return r.perCrit[c.key]!=null; });
   var showRadar = galleryShowScores && hasScores;
   var radarBox = showRadar
-    ? radarChartSvg(galleryData.criteria, r.perCrit, 320, scale)
+    ? radarChartSvg(workCriteria, r.perCrit, 320, scale)
     : '<div style="color:rgba(255,255,255,0.6);text-align:left;font-size:calc(1.1rem * '+scale+');line-height:1.6;padding:0 12px">' +
         (hasScores ? '分數尚未公開，<br>達到公開門檻後才會顯示雷達圖。' : '這件作品目前收到的評分還不夠，<br>尚無法顯示雷達圖。') +
       '</div>';
@@ -1924,7 +1931,7 @@ function prefetchAllWorkReviews(){
     if(res && res.ok && res.works){
       var now = Date.now();
       Object.keys(res.works).forEach(function(code){
-        workReviewsCache[code] = { ok: true, workCode: code, criteria: res.criteria, reviews: res.works[code], _at: now };
+        workReviewsCache[code] = { ok: true, workCode: code, criteria: (res.criteriaByWork||{})[code]||res.criteria, reviews: res.works[code], _at: now };
       });
       workReviewsAll = 'done';
       if(slideshowIndex != null && slideReviewsOpen) updateReviewsPanelDom();
@@ -2323,6 +2330,60 @@ function handleSlideBodyTap(e){
 }
 
 // ---------- 器材輪值（多組別、共用時間軸）----------
+// School timetable uses Asia/Taipei regardless of the viewer's device timezone.
+function defaultClassSchedule(){
+  return [['08:05','08:55'],['09:10','10:00'],['10:10','11:00'],['11:10','12:00'],['13:00','13:50'],['14:00','14:50'],['15:05','15:55']].map(function(p){return {start:p[0],end:p[1]};});
+}
+function scheduleMinute(value){
+  if(!/^\d{2}:\d{2}$/.test(String(value))) return NaN;
+  var p=value.split(':').map(Number);
+  return p[0]<24 && p[1]<60 ? p[0]*60+p[1] : NaN;
+}
+function validClassSchedule(schedule){
+  if(!Array.isArray(schedule)||schedule.length!==7) return false;
+  var last=-1;
+  return schedule.every(function(p){
+    if(!p) return false;
+    var start=scheduleMinute(p.start),end=scheduleMinute(p.end);
+    var valid=isFinite(start)&&isFinite(end)&&start<end&&start>=last;
+    last=end; return valid;
+  });
+}
+function inClassAt(schedule,now){
+  var minute=((now+8*3600000)%86400000)/60000;
+  return schedule.some(function(p){return minute>=scheduleMinute(p.start)&&minute<scheduleMinute(p.end);});
+}
+function classElapsedMs(schedule,from,to){
+  if(!(to>from)) return 0;
+  var dayMs=86400000,offset=8*3600000;
+  var first=Math.floor((from+offset)/dayMs),last=Math.floor((to+offset)/dayMs),total=0;
+  // Count whole intervening days in constant time, including long-closed tabs.
+  var daily=schedule.reduce(function(n,p){return n+(scheduleMinute(p.end)-scheduleMinute(p.start))*60000;},0);
+  if(last-first>1) total+=(last-first-1)*daily;
+  [first,last].filter(function(d,i,a){return a.indexOf(d)===i;}).forEach(function(d){
+    var base=d*dayMs-offset;
+    schedule.forEach(function(p){total+=Math.max(0,Math.min(to,base+scheduleMinute(p.end)*60000)-Math.max(from,base+scheduleMinute(p.start)*60000));});
+  });
+  return total;
+}
+function equipmentTotalMinutes(eq){
+  if(eq && Number(eq.totalMinutes)>0) return Number(eq.totalMinutes);
+  var maxN=0;
+  ((eq&&eq.groups)||[]).forEach(function(g){
+    var present={}; (g.members||[]).forEach(function(m){present[String(m.seat)]=m.present!==false;});
+    var n=(g.order||[]).filter(function(p){return present[String(p.seat)]!==false;}).length;
+    maxN=Math.max(maxN,n);
+  });
+  return ((eq&&eq.perPersonMinutes)||6)*Math.max(1,maxN);
+}
+function equipmentElapsedMs(eq,now){
+  if(!eq||!eq.startedAt) return 0;
+  if(eq.clockVersion!==2) return Math.max(0,(eq.pausedAt||now)-eq.startedAt-(eq.pausedTotalMs||0));
+  var elapsed=Number(eq.elapsedMs)||0;
+  if(!eq.pausedAt&&!eq.endedAt&&eq.resumedAt) elapsed+=classElapsedMs(eq.classSchedule||defaultClassSchedule(),eq.resumedAt,now);
+  return Math.min(equipmentTotalMinutes(eq)*60000,Math.max(0,elapsed));
+}
+
 function fmtTime(ms){
   if(ms<0) ms=0;
   var totalSec = Math.floor(ms/1000);
@@ -2364,7 +2425,7 @@ function ensureEquipmentTicking(){
   }
 }
 function pollEquipment(){
-  if(!apiUrl || document.hidden || isPriorityBusy()) return; // 交作品／評分正在等回應的時候，不要再塞別的請求
+  if(!apiUrl || document.hidden || isPriorityBusy() || equipmentActionPending) return; // 交作品／評分正在等回應的時候，不要再塞別的請求
   apiGet('equipmentGet').then(function(res){
     equipmentData = res.equipment;
     if(slideshowIndex==null) patchEquipmentDisplay();
@@ -2434,47 +2495,28 @@ function leaderSeatFor(group){
  *   平均分配，讓放棄者空出來的時間確實分給了同組還在等的人，而不是憑空消失。
  * 這個函式只負責排出 segments，實際「現在算到第幾人、剩多少時間」在 equipGroupState 裡找。
  */
-function buildEquipSegments(order, perMs, elapsed, waivedSeats){
-  var n = order.length;
-  var totalMs = n*perMs;
-  var cappedElapsed = Math.min(elapsed, totalMs - 1);
-  var rawIndex = Math.min(n-1, Math.max(0, Math.floor(cappedElapsed/perMs)));
-  var rawSegStart = rawIndex*perMs;
-  var rawElapsedInSeg = Math.min(perMs, Math.max(0, elapsed - rawSegStart));
-  var currentIsWaived = waivedSeats.indexOf(order[rawIndex].seat) >= 0;
-  // 目前這位如果放棄了，他的時段就在「現在」截止；沒放棄的話照原本固定時長走完，
-  // 不管後面有沒有人放棄——他已經在用，不該被別人的決定打斷。
-  var lockedEndMs = currentIsWaived ? elapsed : (rawSegStart + perMs);
-  var redistributeFrom = rawIndex + 1;
-  var segments = [];
-  for(var i=0;i<redistributeFrom;i++){
-    var p = order[i];
-    var isW = waivedSeats.indexOf(p.seat) >= 0;
-    if(i===rawIndex && currentIsWaived){
-      segments.push({ seat:p.seat, name:p.name, start:rawSegStart, duration:rawElapsedInSeg, waived:true });
-    } else if(isW){
-      segments.push({ seat:p.seat, name:p.name, start:i*perMs, duration:0, waived:true });
-    } else {
-      segments.push({ seat:p.seat, name:p.name, start:i*perMs, duration:perMs, waived:false });
-    }
-  }
-  var remainingBudget = Math.max(0, totalMs - lockedEndMs);
-  var restOrder = order.slice(redistributeFrom);
-  var remainingActiveCount = restOrder.filter(function(p){ return waivedSeats.indexOf(p.seat) < 0; }).length;
-  var cursor = lockedEndMs;
-  restOrder.forEach(function(p){
-    var isW = waivedSeats.indexOf(p.seat) >= 0;
-    if(isW){
-      segments.push({ seat:p.seat, name:p.name, start:cursor, duration:0, waived:true });
-    } else {
-      var dur = remainingActiveCount>0 ? remainingBudget/remainingActiveCount : 0;
-      segments.push({ seat:p.seat, name:p.name, start:cursor, duration:dur, waived:false });
-      cursor += dur;
-      remainingBudget -= dur;
-      remainingActiveCount--;
-    }
+function buildEquipSegments(order,perMs,elapsed,waivedSeats,waiverEvents){
+  var totalMs=order.length*perMs;
+  var segments=order.map(function(p,i){return {seat:p.seat,name:p.name,start:i*perMs,duration:perMs,waived:false};});
+  var events=(waiverEvents||[]).slice().sort(function(a,b){return a.elapsedMs-b.elapsedMs;});
+  // Legacy missing logs are treated as waivers before this round began.
+  waivedSeats.forEach(function(seat){if(!events.some(function(e){return normSeat(e.seat)===normSeat(seat);})) events.push({seat:seat,elapsedMs:0});});
+  events.sort(function(a,b){return a.elapsedMs-b.elapsedMs;});
+  events.forEach(function(event){
+    var time=Math.max(0,Math.min(totalMs,Number(event.elapsedMs)||0));
+    var target=segments.findIndex(function(s){return normSeat(s.seat)===normSeat(event.seat);});
+    if(target<0||segments[target].waived) return;
+    var active=segments.findIndex(function(s){return !s.waived&&time<s.start+s.duration;});
+    if(active<0||target<active) return;
+    segments[target].waived=true;
+    var from=active,lockedEnd=time;
+    if(target===active){segments[active].duration=Math.max(0,time-segments[active].start);from=active+1;}
+    else if(time>segments[active].start){lockedEnd=segments[active].start+segments[active].duration;from=active+1;}
+    var rest=segments.slice(from),count=rest.filter(function(s){return !s.waived;}).length;
+    var cursor=lockedEnd,budget=Math.max(0,totalMs-lockedEnd);
+    rest.forEach(function(s){s.start=cursor;s.duration=s.waived?0:(count?budget/count:0);if(!s.waived){cursor+=s.duration;budget-=s.duration;count--;}});
   });
-  return { segments:segments, totalMs:cursor };
+  return {segments:segments,totalMs:segments.reduce(function(end,s){return Math.max(end,s.start+s.duration);},0)};
 }
 /**
  * 所有組別同時開始、同時結束：總時間以「出席人數最多的那一組」為準（人數 × 每人分鐘），
@@ -2482,28 +2524,26 @@ function buildEquipSegments(order, perMs, elapsed, waivedSeats){
  * 例如每人 7 分鐘、最多的組 5 人（共 35 分鐘），3 人的組每人約 11.7 分鐘，兩組一起在第 35 分鐘結束。
  * 回傳這一組實際每人的毫秒數（baseMs 是老師設的每人時間，maxN 是最多的那組人數）。
  */
-function equipGroupSlot(eq, group){
-  var baseMs = (eq.perPersonMinutes||6)*60000;
-  var n = presentOrderFor(group || {}).length;
-  var maxN = n;
-  (eq.groups||[]).forEach(function(g){ var c = presentOrderFor(g).length; if(c > maxN) maxN = c; });
-  return { n:n, maxN:maxN, baseMs:baseMs, perMs: n ? baseMs * maxN / n : baseMs };
+function equipGroupSlot(eq,group){
+  var n=presentOrderFor(group||{}).length,totalMs=equipmentTotalMinutes(eq)*60000;
+  return {n:n,maxN:n,baseMs:totalMs,perMs:n?totalMs/n:totalMs};
 }
 function equipGroupState(eq, group){
   var order = presentOrderFor(group || {});
   var n = order.length;
   if(!n || !eq.startedAt) return { active:false, order:order };
   var perMs = equipGroupSlot(eq, group).perMs;
-  var now = eq.pausedAt ? eq.pausedAt : Date.now();
-  var elapsed = Math.max(0, now - eq.startedAt - (eq.pausedTotalMs||0));
+  var elapsed = equipmentElapsedMs(eq,Date.now());
+  var autoPaused=eq.clockVersion===2&&!inClassAt(eq.classSchedule||defaultClassSchedule(),Date.now());
   var waivedSeats = (group && group.waivedSeats) || [];
-  var built = buildEquipSegments(order, perMs, elapsed, waivedSeats);
+  var events=((group&&group.waiverLog)||[]).map(function(e){return {seat:e.seat,elapsedMs:e.elapsedMs==null?Math.max(0,(e.at||eq.startedAt)-eq.startedAt-(eq.pausedTotalMs||0)):e.elapsedMs};});
+  var built = buildEquipSegments(order, perMs, elapsed, waivedSeats,events);
   var segments = built.segments, cycleMs = built.totalMs;
-  if(elapsed >= cycleMs){
+  if(eq.endedAt || elapsed >= cycleMs){
     return {
       active:true, done:true, order:order, segments:segments,
       currentIndex: n-1, progress:1, remainingMs:0,
-      paused: !!eq.pausedAt
+      paused: !!eq.pausedAt||autoPaused
     };
   }
   var currentIndex = 0;
@@ -2520,7 +2560,7 @@ function equipGroupState(eq, group){
     currentIndex: currentIndex,
     progress: cycleMs>0 ? elapsed/cycleMs : 0,
     remainingMs: Math.max(0, curSeg.start + curSeg.duration - elapsed),
-    paused: !!eq.pausedAt
+    paused: !!eq.pausedAt||autoPaused
   };
 }
 /**
@@ -2663,7 +2703,7 @@ function screenEquipment(){
   } else {
     timelineSection =
       '<div class="card equip-current" style="border-left:8px solid '+(current?swatchColorFor(currentColorName):'#999')+'">' +
-        (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停</p>' : '') +
+        (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停（手動暫停或目前為下課時間）</p>' : '') +
         '<p class="equip-turn-label">目前使用：</p>' +
         '<p class="equip-turn-name">'+(current ? ('<span class="equip-swatch" style="background:'+swatchColorFor(currentColorName)+'"></span>'+escapeHtml(currentColorName)+'夾・'+escapeHtml(current.seat)+'號 '+escapeHtml(current.name)) : '—')+'</p>' +
         '<p class="equip-timer">'+fmtTime(state.remainingMs)+'</p>' +
@@ -2762,9 +2802,9 @@ function equipmentReturnChecklistHtml(eq, group){
 /** 人數比最多的組少時，這組每個人的時間會拉長（讓各組同時結束），在標題旁邊說明實際每人幾分鐘。 */
 function slotNoteHtml(eq, g){
   var sl = equipGroupSlot(eq, g);
-  if(!sl.n || sl.n >= sl.maxN) return '';
+  if(!sl.n) return '';
   var mins = Math.round(sl.perMs / 6000) / 10; // 一位小數
-  return '　<span class="hint" style="font-weight:400" title="這組人數比最多的組少，為了讓各組同時結束，每人時間依比例拉長">每人約 '+mins+' 分</span>';
+  return '　<span class="hint" style="font-weight:400" title="總時間平均分配給這組今天出席的組員">每人約 '+mins+' 分</span>';
 }
 function teacherEquipmentOverviewHtml(eq){
   if(!eq) return '<div class="card"><p class="hint">載入中...</p></div>';
@@ -2789,7 +2829,7 @@ function teacherEquipmentOverviewHtml(eq){
         timelineHtml(state, true);
     } else {
       body =
-        (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停</p>' : '') +
+        (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停（手動暫停或目前為下課時間）</p>' : '') +
         '<p class="hint">目前使用：<strong>'+(current?(escapeHtml(current.seat)+'號 '+escapeHtml(current.name)):'—')+'</strong>　剩 '+fmtTime(state.remainingMs)+'</p>' +
         '<p class="hint">下一位：'+(next?(escapeHtml(next.seat)+'號 '+escapeHtml(next.name)):'—')+'</p>' +
         timelineHtml(state, true);
@@ -2994,7 +3034,7 @@ function teacherEquipMiniHtml(eq){
   // 這裡挑「還在跑」的第一組當代表；全部組別都跑完了就說跑完了。
   var states = candidates.map(function(g){ return equipGroupState(eq, g); });
   var running = states.filter(function(s){ return s.active && !s.done; })[0];
-  if(running) return '<span class="hint" style="font-size:0.8rem;font-family:\'JetBrains Mono\',monospace;white-space:nowrap">剩 '+fmtTime(running.remainingMs)+(running.paused?'（暫停）':'')+'</span>';
+  if(running) return '<span class="hint" style="font-size:0.8rem;font-family:\'JetBrains Mono\',monospace;white-space:nowrap">剩 '+fmtTime(Math.max(0,equipmentTotalMinutes(eq)*60000-equipmentElapsedMs(eq,Date.now())))+(running.paused?'（暫停）':'')+'</span>';
   var anyStarted = states.some(function(s){ return s.active; });
   if(!anyStarted) return '<span class="hint" style="font-size:0.75rem">尚未開始計時</span>';
   return '<span class="hint" style="font-size:0.75rem;color:var(--good)">全部組別已跑完</span>';
@@ -3004,21 +3044,7 @@ function teacherEquipMiniHtml(eq){
  * 不用另外按儲存按鈕——這裡空間小，多一個按鈕反而擠。
  */
 function equipDurationQuickHtml(eq){
-  var minutes = eq ? eq.perPersonMinutes : 6;
-  var lo = (eq && eq.durationMin!=null) ? eq.durationMin : 1;
-  var hi = (eq && eq.durationMax!=null) ? eq.durationMax : 15;
-  var unlocked = equipDurationUnlocked;
-  // 鎖頭只留圖示（文字會害這一排換行、變很高），滑過去／長按才看得到說明
-  return '<span class="hint" style="font-size:0.7rem;display:inline-flex;align-items:center;gap:5px;white-space:nowrap">' +
-    '每人' +
-    '<label title="'+(unlocked?'目前可調整，點一下鎖定':'目前鎖定，點一下才能調整')+'" style="display:inline-flex;align-items:center;gap:2px;cursor:pointer;user-select:none">' +
-      '<input type="checkbox" id="equipDurationUnlock" '+(unlocked?'checked':'')+' style="cursor:pointer;margin:0">' +
-      '<span>'+(unlocked?'🔓':'🔒')+'</span>' +
-    '</label>' +
-    '<input type="range" id="equipDurationSlider" min="'+lo+'" max="'+hi+'" step="1" value="'+minutes+'" '+(unlocked?'':'disabled')+' style="width:64px;vertical-align:middle;cursor:'+(unlocked?'pointer':'not-allowed')+'">' +
-    '<span id="equipDurationValue" style="min-width:1.6em;text-align:center;display:inline-block;font-family:\'JetBrains Mono\',monospace">'+minutes+'</span>' +
-    '分' +
-  '</span>';
+  return '<label class="hint" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">總時間 <input type="number" id="equipTotalMinutes" aria-label="輪器材總時間（分鐘）" min="1" max="1440" step="any" value="'+equipmentTotalMinutes(eq)+'" style="width:76px"> 分</label>';
 }
 /** 只看「有排定順序的組」，全部都跑完了才算數——沒排順序的空組別不該讓整體被誤判為已完成。 */
 function isAllEquipmentDone(eq){
@@ -3032,14 +3058,12 @@ function isAllEquipmentDone(eq){
  * 就變成「重新開始」（點下去直接重新排順序，等於開新的一輪）；其他時候在暫停跟繼續之間切換。
  */
 function equipStartPauseButtonsHtml(eq){
-  var started = !!(eq && eq.startedAt);
-  var paused = !!(eq && eq.pausedAt);
-  var label = !started ? '開始' : (isAllEquipmentDone(eq) ? '重新開始' : (paused ? '▶ 繼續' : '⏸ 暫停'));
-  return '<button type="button" class="navbtn" id="equipStartPauseToggle">'+label+'</button>';
+  var started=!!(eq&&eq.startedAt),done=!!(eq&&(eq.endedAt||isAllEquipmentDone(eq)));
+  var label=!started?'開始':done?'重新開始':eq.pausedAt?'▶ 繼續':'⏸ 暫停';
+  return '<button type="button" class="navbtn" id="equipStartPauseToggle">'+label+'</button>'+ (started&&!done?'<button type="button" class="navbtn" id="equipStopTimer">結束</button>':'')+'<button type="button" class="navbtn" id="equipResetTimer">重設計時</button>';
 }
 function handleEquipStartPauseToggle(){
-  if(!equipmentData || !equipmentData.startedAt) handleEquipStart();
-  else if(isAllEquipmentDone(equipmentData)) handleEquipBuildOrder();
+  if(!equipmentData||!equipmentData.startedAt||equipmentData.endedAt||isAllEquipmentDone(equipmentData)) handleEquipStart();
   else handleEquipPauseToggle();
 }
 function equipmentAdminHtml(){
@@ -3084,15 +3108,7 @@ function equipmentAdminHtml(){
         '<hr class="divider">' +
         (groupsHtml || '<p class="hint">請先儲存分組名單。</p>') +
         '<hr class="divider">' +
-        '<p class="hint">每人使用時間現在改放在最上面「教師模式」旁邊，隨時可以直接改，不用來這裡設定。這裡只設定滑桿可以調整的分鐘數範圍。</p>' +
-        '<div class="field"><span>滑桿可調範圍（分鐘）</span>' +
-          '<div style="display:flex;gap:8px;align-items:center">' +
-            '<input type="number" min="1" max="180" id="equip_duration_min" value="'+(eq.durationMin!=null?eq.durationMin:1)+'" style="width:70px">' +
-            '<span class="hint">到</span>' +
-            '<input type="number" min="1" max="180" id="equip_duration_max" value="'+(eq.durationMax!=null?eq.durationMax:15)+'" style="width:70px">' +
-          '</div>' +
-        '</div>' +
-        '<button type="button" class="btn btn-accent" id="equipSaveDurationRange">儲存滑桿範圍</button>' +
+        '<p class="hint">總時間在最上方直接輸入分鐘數，各組以「總時間 ÷ 出席組員人數」分配。可隨時結束或重設計時；下課自動暫停，上課接續。</p>' +
         '<hr class="divider">' +
         '<label class="field"><span>器材清單（每行一項，同款要借幾份就重複列幾行，例如記憶卡要 2 張就寫兩行「記憶卡」）</span><textarea id="equip_items" style="min-height:100px">'+escapeHtml((eq.itemTypes||[]).join('\n'))+'</textarea></label>' +
         '<button type="button" class="btn btn-accent" id="equipSaveItemTypes">儲存器材清單</button>' +
@@ -3132,13 +3148,17 @@ function lightboxHtml(){
     '</div>'
   );
 }
+var equipmentActionPending=false;
 function handleEquipAction(action, extra){
+  if(equipmentActionPending) return Promise.resolve();
+  equipmentActionPending=true;
   var payload = Object.assign({ passcode: teacherAuthPasscode() }, extra || {});
   return apiGet(action, payload).then(function(res){
+    equipmentActionPending=false;
     if(!res.ok){ setToast('error','操作失敗（'+(res.error||'unknown')+'）'); render(); return; }
     equipmentData = res.equipment;
     render();
-  }).catch(function(e){ setToast('error','操作失敗：'+e.message); render(); });
+  }).catch(function(e){equipmentActionPending=false; setToast('error','操作失敗：'+e.message); render(); });
 }
 /** 從雲端硬碟讀名單，填進分組名單欄位（不會自動儲存，讓老師先檢查）。 */
 // ---------- 手機上的名單檔案：在手機上直接讀（CSV／文字檔／Excel），不用先傳到雲端硬碟 ----------
@@ -3317,12 +3337,10 @@ function handleEquipSaveAttendance(){
   });
   handleEquipAction('equipmentSetAttendance', { attendance: att });
 }
-function handleEquipQuickDuration(delta){
-  var cur = equipmentData ? equipmentData.perPersonMinutes : 6;
-  var lo = (equipmentData && equipmentData.durationMin!=null) ? equipmentData.durationMin : 1;
-  var hi = (equipmentData && equipmentData.durationMax!=null) ? equipmentData.durationMax : 15;
-  var minutes = Math.max(lo, Math.min(hi, cur + delta));
-  handleEquipAction('equipmentSetDuration', { minutes: minutes });
+function handleEquipQuickDuration(minutes){
+  minutes=Number(minutes);
+  if(!isFinite(minutes)||minutes<1||minutes>1440){alert('總時間請輸入 1 至 1440 分鐘。');return;}
+  handleEquipAction('equipmentSetDuration',{minutes:minutes});
 }
 function handleEquipSetDurationRange(form){
   var min = Math.max(1, parseInt(form.querySelector('#equip_duration_min').value,10) || 1);
@@ -3458,13 +3476,47 @@ function handleHeaderSortClick(table, key){
   }
   render();
 }
+
+function criteriaForAssignmentClient(cfg,a){
+  return textMapLookup(cfg.assignmentCriteria,a)||cfg.criteria||[];
+}
+function criteriaUnionClient(lists){
+  var seen={},out=[];lists.forEach(function(list){(list||[]).forEach(function(c){if(!seen[c.key]){seen[c.key]=true;out.push(c);}});});return out;
+}
+function assignmentCriteriaEditorHtml(cfg,assignments,drafts){
+  return assignments.map(function(a){
+    var text=drafts&&Object.prototype.hasOwnProperty.call(drafts,a) ? drafts[a] : criteriaForAssignmentClient(cfg,a).map(function(c){return c.label;}).join('\n');
+    return '<label class="field"><span>'+escapeHtml(a)+'：評分項目（每行一題）</span><textarea class="cfg-assignment-criteria" data-assignment="'+escapeAttr(a)+'">'+escapeHtml(text)+'</textarea></label>';
+  }).join('');
+}
+var assignmentCriteriaDrafts={};
+function syncAssignmentCriteriaEditors(){
+  var slot=document.getElementById('assignmentCriteriaEditors'),names=document.getElementById('cfg_assignments');
+  if(!slot||!names||!teacherView) return;
+  var drafts=assignmentCriteriaDrafts;slot.querySelectorAll('textarea').forEach(function(t){drafts[t.dataset.assignment]=t.value;});
+  var cfg=Object.assign({},teacherView.config);
+  cfg.criteria=document.getElementById('cfg_criteria').value.split('\n').map(function(s,i){return {key:'draft'+i,label:s.trim()};}).filter(function(c){return c.label;});
+  var assignments=names.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+  slot.innerHTML=assignmentCriteriaEditorHtml(cfg,assignments.filter(function(a,i){return assignments.indexOf(a)===i;}),drafts);
+}
+function retainCriterionKeys(lines,old){
+  var used={};return lines.map(function(label){
+    var same=old.filter(function(c){return c.label===label&&!used[c.key];})[0];
+    var key=same?same.key:'crit_'+uid('');used[key]=true;return {key:key,label:label};
+  });
+}
+function classScheduleEditorHtml(cfg){
+  var schedule=cfg.classSchedule||defaultClassSchedule();
+  return '<div class="field"><span>第一至第七節上課／下課時間（台灣時間）</span>'+schedule.map(function(p,i){return '<div style="display:flex;gap:8px;align-items:center"><span>第 '+(i+1)+' 節</span><input type="time" aria-label="第'+(i+1)+'節上課" class="cfg-period-start" required value="'+escapeAttr(p.start)+'"><span>至</span><input type="time" aria-label="第'+(i+1)+'節下課" class="cfg-period-end" required value="'+escapeAttr(p.end)+'"></div>';}).join('')+'<p class="hint">下課、午休及課表外時間自動暫停，上課自動接續；手動暫停需按「繼續」。</p></div>';
+}
+
 function screenTeacher(){
   if(!teacherView){
     return '<h1 class="screen-title">教師專區</h1><p class="hint">載入中...</p>';
   }
   var namesHidden = localStorage.getItem('crit.hideNames')==='1';
   var cfg = teacherView.config;
-  var criteria = cfg.criteria;
+  var criteria = criteriaUnionClient((teacherView.rows||[]).filter(function(r){return !teacherAssignmentFilter||normAssignment(r.assignment)===normAssignment(teacherAssignmentFilter);}).map(function(r){return r.criteria||criteriaForAssignmentClient(cfg,r.assignment);}));
   var assignments = cfg.assignments || [];
   var allRows = teacherView.rows;
   var required = cfg.reviewsPerStudent;
@@ -3590,7 +3642,10 @@ function screenTeacher(){
         '<label class="field"><span>班級名稱（顯示在網頁標題旁邊，最多 20 字；好幾個班共用同一個網頁時，學生和老師一眼就知道這是哪一班）</span><input id="cfg_className" maxlength="20" placeholder="例如：攝影一甲" value="'+escapeAttr(cfg.className||'')+'"></label>' +
         '<label class="field"><span>作業清單（每行一個作業名稱，交作品／作品牆／評分的選單都會用這個）</span><textarea id="cfg_assignments">'+escapeHtml(assignments.join('\n'))+'</textarea></label>' +
         '<label class="field"><span>每人需要評幾件作品（每份作業各自算，不會加總）</span><input type="number" min="1" max="50" id="cfg_n" value="'+cfg.reviewsPerStudent+'"></label>' +
-        '<label class="field"><span>評分題目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
+        '<label class="field"><span>新作業的預設評分項目（每行一題）</span><textarea id="cfg_criteria">'+escapeHtml(cfg.criteria.map(function(c){ return c.label; }).join('\n'))+'</textarea></label>' +
+        '<div id="assignmentCriteriaEditors">'+assignmentCriteriaEditorHtml(cfg,assignments)+'</div>' +
+        '<p class="hint">每份作業的題目各自儲存，可新增、刪除或調整順序。修改預設不會改動既有作業；已收到的評分保留原題目與分數。</p>' +
+        classScheduleEditorHtml(cfg) +
         '<label class="field"><span>教師密語</span><input id="cfg_pass" value="'+escapeAttr(cfg.teacherPasscode)+'"></label>' +
         '<div class="field"><span>開放作品牆顯示姓名／座號（可以個別設定每份作業，建議該份作業評分截止後再打開）</span>' +
           assignments.map(function(a){
@@ -3604,7 +3659,7 @@ function screenTeacher(){
         '</div>' +
         '<label class="field"><span>某份作業要有幾位同學評完，才自動開放「作者姓名」和「分數／雷達圖」（在這之前都先隱藏，避免太早看到互相影響；不用等老師手動開放，達標後預設仍是關閉的，要學生自己勾選才會看到）</span><input type="number" min="0" max="200" id="cfg_revealMinReviewers" value="'+(cfg.revealMinReviewers!=null?cfg.revealMinReviewers:15)+'"></label>' +
         '<label class="field"><span>每位同學在那份作業要評滿幾件，才算「評完」</span><input type="number" min="1" max="50" id="cfg_revealMinReviews" value="'+(cfg.revealMinReviews!=null?cfg.revealMinReviews:5)+'"></label>' +
-        '<p class="hint">密語驗證在伺服器端做，其他同學看不到。之後隨時可以在上面兩個清單「新增一行」作業或題目，不會影響已經收到的作品和分數；但如果去修改文字、刪除或搬動「既有」的那幾行，可能會讓已經收到的分數對不上，這種情況才建議避免在評分開始後做。</p>' +
+        '<p class="hint">題目重新排序會保留對應分數；新增或改寫題目會作為新題目，舊評分仍保留在明細與報表中。作業名稱已有作品時請保留，以免作品分類改變。</p>' +
         '<button type="submit" class="btn btn-primary">儲存設定</button>' +
       '</form>' +
     '</div>' +
@@ -3829,6 +3884,7 @@ function loadMyReviewProgress(){
   }).catch(function(){});
 }
 function loadTeacherView(){
+  assignmentCriteriaDrafts={};
   if(!apiUrl){ setToast('error','請先到「連接設定」貼上資料庫網址。'); setRole('connect'); render(); return; }
   var pass = teacherAuthPasscode();
   if(!pass){
@@ -4065,6 +4121,7 @@ function handleSubmitScore(form){
   loading = true; render();
   apiGet('addReview', payload).then(function(res){
     loading = false;
+    if(!res||!res.ok){setToast('error',res&&res.error==='criteria_changed'?'老師已更新評分項目，請依新題目重新評分。':'評分未送出，請再試一次。');loadReviewView();return;}
     setToast('success', '評分已送出，謝謝！');
     // 伺服器在回應裡直接附上下一件要評的作品，不用再多打一次 getNextWork；
     // 沒附（例如舊版後端）才退回原本的做法。
@@ -4086,10 +4143,18 @@ function handleSaveConfig(form){
   var oldCriteria = teacherView.config.criteria;
   if(!lines.length) lines = oldCriteria.map(function(c){ return c.label; });
   var passNew = form.querySelector('#cfg_pass').value.trim() || teacherView.config.teacherPasscode;
-  var newCriteria = lines.map(function(label, i){
-    var existing = oldCriteria[i];
-    return { key: existing ? existing.key : 'c' + (i+1) + '_' + uid(''), label: label };
+  var newCriteria = retainCriterionKeys(lines,oldCriteria);
+  var assignmentCriteria={};
+  var invalidRubric=false;
+  form.querySelectorAll('.cfg-assignment-criteria').forEach(function(ta){
+    var a=ta.dataset.assignment,list=ta.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+    if(!list.length||list.length>50) invalidRubric=true;
+    assignmentCriteria[a]=retainCriterionKeys(list,criteriaForAssignmentClient(teacherView.config,a));
   });
+  if(invalidRubric){alert('每份作業請填寫 1 至 50 個評分項目。');return;}
+  var starts=form.querySelectorAll('.cfg-period-start'),ends=form.querySelectorAll('.cfg-period-end');
+  var classSchedule=Array.from(starts).map(function(t,i){return {start:t.value,end:ends[i].value};});
+  if(!validClassSchedule(classSchedule)){alert('請填完整七節課時間：下課須晚於上課，各節時間不可重疊。');return;}
   var namesRevealedByAssignment = {};
   form.querySelectorAll('.cfg-names-toggle').forEach(function(cb){
     namesRevealedByAssignment[cb.getAttribute('data-assignment')] = cb.checked;
@@ -4108,8 +4173,10 @@ function handleSaveConfig(form){
   var btn = form.querySelector('button[type="submit"]');
   if(btn){ btn.disabled = true; btn.textContent = '儲存中...'; }
   var classNameVal = (form.querySelector('#cfg_className') ? form.querySelector('#cfg_className').value : (teacherView.config.className||'')).trim().slice(0, 20);
-  apiGet('teacherUpdateConfig', { passcode:authPass, className:classNameVal, criteria:newCriteria, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, revealMinReviewers:revealMinReviewers, revealMinReviews:revealMinReviews, assignmentDescriptions:assignmentDescriptions, assignments:newAssignments }).then(function(res){
+  apiGet('teacherUpdateConfig', { passcode:authPass, className:classNameVal, criteria:newCriteria, assignmentCriteria:assignmentCriteria, classSchedule:classSchedule, reviewsPerStudent:n, teacherPasscode:passNew, namesRevealedByAssignment:namesRevealedByAssignment, revealMinReviewers:revealMinReviewers, revealMinReviews:revealMinReviews, assignmentDescriptions:assignmentDescriptions, assignments:newAssignments }).then(function(res){
     if(!res.ok){
+      if(btn){btn.disabled=false;btn.textContent='儲存設定';}
+      if(res.error!=='unauthorized'){alert('儲存失敗：'+(res.error||'unknown'));return;}
       alert('儲存失敗：密語不對或權限有問題，請重新登入教師專區再試一次。');
       clearTeacherAuth();
       setRole('home');
@@ -4318,7 +4385,7 @@ function csvCell(v){
 }
 function handleExportCsv(){
   if(!teacherView) return;
-  var criteria = teacherView.config.criteria;
+  var criteria = criteriaUnionClient(teacherView.rows.map(function(r){return r.criteria||teacherView.config.criteria;}));
   var rows = teacherAssignmentFilter ? teacherView.rows.filter(function(r){ return normAssignment(r.assignment)===normAssignment(teacherAssignmentFilter); }) : teacherView.rows;
   var csvValueFns = {
     seat: function(r){ return seatNumFor(r.studentSeat); },
@@ -4739,6 +4806,8 @@ function attachHandlers(){
     }
     var confirmBtn = e.target.closest('.equip-confirm-btn');
     if(confirmBtn){ handleEquipConfirmReturned(confirmBtn.getAttribute('data-group'), confirmBtn.closest('.card')); return; }
+    if(e.target.closest('#equipStopTimer')){handleEquipAction('equipmentStop');return;}
+    if(e.target.closest('#equipResetTimer')){handleEquipAction('equipmentResetTimer');return;}
     if(e.target.closest('#equipStartPauseToggle')){ handleEquipStartPauseToggle(); return; }
   };
   root.onchange = function(e){
@@ -4750,7 +4819,7 @@ function attachHandlers(){
     if(e.target.id==='toggleGalleryScores'){ galleryShowScores = e.target.checked; render(); return; }
     if(e.target.id==='teacherAutoRefreshToggle'){ setTeacherAutoRefresh(e.target.checked); return; }
     if(e.target.id==='equipDurationUnlock'){ equipDurationUnlocked = e.target.checked; render(); return; }
-    if(e.target.id==='equipDurationSlider'){ handleEquipQuickDuration(parseInt(e.target.value,10) - (equipmentData?equipmentData.perPersonMinutes:6)); return; }
+    if(e.target.id==='equipTotalMinutes'){ handleEquipQuickDuration(e.target.value); return; }
     if(e.target.classList && e.target.classList.contains('equip-return-cb')){
       var draftKey = e.target.getAttribute('data-group')+'::'+e.target.getAttribute('data-index');
       equipCheckboxDraft[draftKey] = e.target.checked;
@@ -4761,6 +4830,7 @@ function attachHandlers(){
   // 拖曳滑桿的當下先只更新畫面上的數字，不要每移動一點就打一次 API，
   // 真正送出存檔是放開滑桿時觸發的 change 事件（上面 root.onchange）。
   root.oninput = function(e){
+    if(e.target.id==='cfg_assignments'){syncAssignmentCriteriaEditors();return;}
     if(e.target.id==='id_seat'){
       var preview = document.getElementById('id_namePreview');
       if(preview) preview.innerHTML = rosterPreviewHtml(e.target.value);
