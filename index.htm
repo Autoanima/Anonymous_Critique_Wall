@@ -74,7 +74,7 @@ button,input,textarea{font-family:inherit;}
 /* 教師模式的頂端列要盡量矮（手機上它是 sticky，佔掉的高度會一直蓋住內容）：第一排一行放完、按鈕縮小 */
 .topbar-teacher{gap:6px;padding-block:8px 6px;}
 .teacher-bar{flex-wrap:wrap;gap:8px;white-space:nowrap;}
-.teacher-bar-left{display:flex;align-items:center;gap:8px;min-width:0;font-size:0.8rem;}
+.teacher-bar-left{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;font-size:0.8rem;}
 .teacher-bar-left .brand-mark{font-size:1.1rem;}
 .teacher-mode-btn{background:none;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:0.8rem;font-weight:700;color:var(--ink);cursor:pointer;white-space:nowrap;}
 .teacher-mode-btn:active{background:var(--accent-soft);}
@@ -2380,7 +2380,7 @@ function equipmentElapsedMs(eq,now){
   if(!eq||!eq.startedAt) return 0;
   if(eq.clockVersion!==2) return Math.max(0,(eq.pausedAt||now)-eq.startedAt-(eq.pausedTotalMs||0));
   var elapsed=Number(eq.elapsedMs)||0;
-  if(!eq.pausedAt&&!eq.endedAt&&eq.resumedAt) elapsed+=classElapsedMs(eq.classSchedule||defaultClassSchedule(),eq.resumedAt,now);
+  if(!eq.pausedAt&&!eq.endedAt&&eq.resumedAt) elapsed+=eq.autoPauseEnabled===false ? Math.max(0,now-eq.resumedAt) : classElapsedMs(eq.classSchedule||defaultClassSchedule(),eq.resumedAt,now);
   return Math.min(equipmentTotalMinutes(eq)*60000,Math.max(0,elapsed));
 }
 
@@ -2452,6 +2452,8 @@ function patchEquipmentDisplay(){
   if(teacherControlsSlot) teacherControlsSlot.innerHTML = equipStartPauseButtonsHtml(equipmentData);
   var teacherMiniSlot = document.getElementById('teacherEquipMiniSlot');
   if(teacherMiniSlot) teacherMiniSlot.innerHTML = teacherEquipMiniHtml(equipmentData);
+  var autoPauseSlot=document.getElementById('equipAutoPauseSlot');
+  if(autoPauseSlot) autoPauseSlot.innerHTML=equipAutoPauseButtonHtml(equipmentData);
   var durationSlot = document.getElementById('equipDurationQuickSlot');
   if(durationSlot && !isEditingFormField()) durationSlot.innerHTML = equipDurationQuickHtml(equipmentData);
 }
@@ -2531,7 +2533,7 @@ function equipGroupSlot(eq,group){
 function equipmentPauseReason(eq){
   if(!eq || !eq.startedAt || eq.endedAt) return '';
   if(eq.pausedAt) return '手動暫停，按「繼續」恢復';
-  if(eq.clockVersion===2 && !inClassAt(eq.classSchedule||defaultClassSchedule(),Date.now())) return '已開始，課表外自動暫停；上課後自動接續';
+  if(eq.clockVersion===2 && eq.autoPauseEnabled!==false && !inClassAt(eq.classSchedule||defaultClassSchedule(),Date.now())) return '已開始，課表外自動暫停；上課後自動接續';
   return '';
 }
 function equipmentPausedHintHtml(eq){
@@ -2544,7 +2546,7 @@ function equipGroupState(eq, group){
   if(!n || !eq.startedAt) return { active:false, order:order };
   var perMs = equipGroupSlot(eq, group).perMs;
   var elapsed = equipmentElapsedMs(eq,Date.now());
-  var autoPaused=eq.clockVersion===2&&!inClassAt(eq.classSchedule||defaultClassSchedule(),Date.now());
+  var autoPaused=eq.clockVersion===2&&eq.autoPauseEnabled!==false&&!inClassAt(eq.classSchedule||defaultClassSchedule(),Date.now());
   var waivedSeats = (group && group.waivedSeats) || [];
   var events=((group&&group.waiverLog)||[]).map(function(e){return {seat:e.seat,elapsedMs:e.elapsedMs==null?Math.max(0,(e.at||eq.startedAt)-eq.startedAt-(eq.pausedTotalMs||0)):e.elapsedMs};});
   var built = buildEquipSegments(order, perMs, elapsed, waivedSeats,events);
@@ -3046,7 +3048,7 @@ function teacherEquipMiniHtml(eq){
   var running = states.filter(function(s){ return s.active && !s.done; })[0];
   if(running){
     var reason=equipmentPauseReason(eq),status=eq.pausedAt?'手動暫停':running.paused?'已開始・課表外暫停':'計時中';
-    return '<span class="hint" title="'+escapeAttr(reason||'上課時間倒數，下課自動暫停')+'" style="font-size:0.75rem;white-space:normal;text-align:right;line-height:1.4;display:inline-block;color:'+(running.paused?'var(--warn)':'var(--ink-soft)')+'">'+status+'<br>剩 '+fmtTime(Math.max(0,equipmentTotalMinutes(eq)*60000-equipmentElapsedMs(eq,Date.now())))+'</span>';
+    return '<span class="hint" title="'+escapeAttr(reason||'下課是否暫停由上方開關控制')+'" style="font-size:0.75rem;white-space:normal;text-align:right;line-height:1.4;display:inline-block;color:'+(running.paused?'var(--warn)':'var(--ink-soft)')+'">'+status+'<br>剩 '+fmtTime(Math.max(0,equipmentTotalMinutes(eq)*60000-equipmentElapsedMs(eq,Date.now())))+'</span>';
   }
   var anyStarted = states.some(function(s){ return s.active; });
   if(!anyStarted) return '<span class="hint" style="font-size:0.75rem">尚未開始計時</span>';
@@ -3056,6 +3058,10 @@ function teacherEquipMiniHtml(eq){
  * 每人使用時間的快速設定，放在標題「教師模式」旁邊，改了直接存檔（change 事件），
  * 不用另外按儲存按鈕——這裡空間小，多一個按鈕反而擠。
  */
+function equipAutoPauseButtonHtml(eq){
+  var enabled=!eq||eq.autoPauseEnabled!==false;
+  return '<button type="button" class="navbtn" id="equipAutoPauseToggle" aria-pressed="'+enabled+'" '+(!eq||equipmentActionPending?'disabled':'')+' style="font-size:0.75rem;padding:5px 8px;'+(enabled?'background:var(--accent-soft);color:var(--accent-strong);':'')+'" title="開啟：下課自動暫停。關閉：下課也繼續倒數。手動暫停不受此開關影響。">下課自動暫停：'+(enabled?'開':'關')+'</button>';
+}
 function equipDurationQuickHtml(eq){
   return '<label class="hint" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">總時間 <input type="number" id="equipTotalMinutes" aria-label="輪器材總時間（分鐘）" min="1" max="1440" step="any" value="'+equipmentTotalMinutes(eq)+'" style="width:76px"> 分</label>';
 }
@@ -3521,7 +3527,7 @@ function retainCriterionKeys(lines,old){
 }
 function classScheduleEditorHtml(cfg){
   var schedule=cfg.classSchedule||defaultClassSchedule();
-  return '<div class="field"><span>第一至第七節上課／下課時間（台灣時間）</span>'+schedule.map(function(p,i){return '<div style="display:flex;gap:8px;align-items:center"><span>第 '+(i+1)+' 節</span><input type="time" aria-label="第'+(i+1)+'節上課" class="cfg-period-start" required value="'+escapeAttr(p.start)+'"><span>至</span><input type="time" aria-label="第'+(i+1)+'節下課" class="cfg-period-end" required value="'+escapeAttr(p.end)+'"></div>';}).join('')+'<p class="hint">下課、午休及課表外時間自動暫停，上課自動接續；手動暫停需按「繼續」。</p></div>';
+  return '<div class="field"><span>第一至第七節上課／下課時間（台灣時間）</span>'+schedule.map(function(p,i){return '<div style="display:flex;gap:8px;align-items:center"><span>第 '+(i+1)+' 節</span><input type="time" aria-label="第'+(i+1)+'節上課" class="cfg-period-start" required value="'+escapeAttr(p.start)+'"><span>至</span><input type="time" aria-label="第'+(i+1)+'節下課" class="cfg-period-end" required value="'+escapeAttr(p.end)+'"></div>';}).join('')+'<p class="hint">上方「下課自動暫停」開啟時，課表外時間暫停，上課接續；關閉時持續倒數。手動暫停仍需按「繼續」。</p></div>';
 }
 
 function screenTeacher(){
@@ -3789,6 +3795,7 @@ function navHtml(role){
       '<div class="topbar-top teacher-bar">' +
         '<div class="teacher-bar-left"><span class="brand-mark">&#9686;</span><button type="button" class="teacher-mode-btn" data-nav="home" title="點一下回到學生模式">教師模式</button>' +
           '<span id="equipDurationQuickSlot">' + equipDurationQuickHtml(equipmentData) + '</span>' +
+          '<span id="equipAutoPauseSlot">'+equipAutoPauseButtonHtml(equipmentData)+'</span>' +
         '</div>' +
         '<div id="teacherEquipMiniSlot" style="flex:none">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
       '</div>' +
@@ -4820,6 +4827,7 @@ function attachHandlers(){
     }
     var confirmBtn = e.target.closest('.equip-confirm-btn');
     if(confirmBtn){ handleEquipConfirmReturned(confirmBtn.getAttribute('data-group'), confirmBtn.closest('.card')); return; }
+    if(e.target.closest('#equipAutoPauseToggle')){handleEquipAction('equipmentSetAutoPause',{enabled:equipmentData.autoPauseEnabled===false});return;}
     if(e.target.closest('#equipStopTimer')){handleEquipAction('equipmentStop');return;}
     if(e.target.closest('#equipResetTimer')){handleEquipAction('equipmentResetTimer');return;}
     if(e.target.closest('#equipStartPauseToggle')){ handleEquipStartPauseToggle(); return; }

@@ -192,7 +192,7 @@ function equipmentElapsedMs(eq,now){
   if(!eq||!eq.startedAt) return 0;
   if(eq.clockVersion!==2) return Math.max(0,(eq.pausedAt||now)-eq.startedAt-(eq.pausedTotalMs||0));
   var elapsed=Number(eq.elapsedMs)||0;
-  if(!eq.pausedAt&&!eq.endedAt&&eq.resumedAt) elapsed+=classElapsedMs(eq.classSchedule||defaultClassSchedule(),eq.resumedAt,now);
+  if(!eq.pausedAt&&!eq.endedAt&&eq.resumedAt) elapsed+=eq.autoPauseEnabled===false ? Math.max(0,now-eq.resumedAt) : classElapsedMs(eq.classSchedule||defaultClassSchedule(),eq.resumedAt,now);
   return Math.min(equipmentTotalMinutes(eq)*60000,Math.max(0,elapsed));
 }
 
@@ -281,6 +281,7 @@ function defaultEquipment() {
     groups: [],           // [{name, members:[{seat,name,present}], order:[{seat,name}], leader, equipmentStatus:[{reported,reportedBySeat,reportedByName,reportedAt,confirmed}...]}]
     itemTypes: DEFAULT_EQUIPMENT_ITEM_TYPES.slice(),
     totalMinutes: 30,
+    autoPauseEnabled: true,
     clockVersion: 2, elapsedMs: 0, resumedAt: null, endedAt: null,
     classSchedule: defaultClassSchedule(),
     perPersonMinutes: 6,
@@ -527,6 +528,14 @@ function settleEquipmentTimer(eq,now){
   upgradeEquipmentTimer(eq);
   eq.elapsedMs=equipmentElapsedMs(eq,now);
   eq.resumedAt=eq.startedAt&&!eq.pausedAt&&!eq.endedAt ? now : null;
+}
+function handleEquipmentSetAutoPause(payload){
+  if(!checkPasscode(payload)) return {ok:false,error:'unauthorized'};
+  if(typeof payload.enabled!=='boolean') return {ok:false,error:'invalid_auto_pause'};
+  var eq=readEquipment(),now=Date.now();
+  settleEquipmentTimer(eq,now);
+  eq.autoPauseEnabled=payload.enabled;
+  writeEquipment(eq);return {ok:true,equipment:eq};
 }
 function handleEquipmentStop(payload){
   if(!checkPasscode(payload)) return {ok:false,error:'unauthorized'};
@@ -2532,6 +2541,7 @@ function dispatch(action, payload) {
     case 'equipmentConfirmReturned': return handleEquipmentConfirmReturned(payload);
     case 'equipmentWaive': return handleEquipmentWaive(payload);
     case 'equipmentResetReturned': return handleEquipmentResetReturned(payload);
+    case 'equipmentSetAutoPause': return handleEquipmentSetAutoPause(payload);
     case 'equipmentStop': return handleEquipmentStop(payload);
     case 'equipmentResetTimer': return handleEquipmentResetTimer(payload);
     case 'equipmentStart': return handleEquipmentStart(payload);
