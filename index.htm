@@ -459,6 +459,27 @@ a.navbtn{text-decoration:none;text-align:center;display:inline-block;}
   .cta-row{flex-direction:column;}
   .score-dot{width:34px;height:34px;font-size:0.85rem;}
 }
+
+/* Compact teacher controls and six-group overview. */
+.topbar-teacher{padding:6px 0;gap:5px;}
+.teacher-timer{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;}
+.teacher-timer .navbtn{padding:6px 9px;font-size:.75rem;min-height:34px;}
+#teacherEquipControlsSlot{display:flex;gap:4px;margin-left:auto;}
+#equipStartPauseToggle{background:var(--accent-soft);color:var(--accent-strong);border-color:var(--accent);font-weight:700;}
+#teacherEquipMiniSlot{font-size:.7rem;line-height:1.2;}
+#teacherEquipMiniSlot br{display:none;}
+.topbar-teacher .teacher-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;}
+.topbar-teacher .teacher-nav .navbtn{padding:5px 2px;font-size:.75rem;min-height:32px;white-space:nowrap;}
+.teacher-group{padding:7px 9px;border-radius:10px;}
+.teacher-group .screen-title{margin:0 0 3px;font-size:.8rem!important;line-height:1.2;}
+.teacher-group .hint{font-size:.68rem;line-height:1.2;margin:2px 0;}
+.teacher-group .rotation-track-compact{height:34px;}
+.teacher-group .rotation-seat{font-size:.8rem;line-height:1.1;}
+.teacher-group .rotation-name{font-size:.65rem;line-height:1.1;}
+.teacher-group .next-person{white-space:nowrap;}
+.shell-teacher .content{padding-top:4px;}
+@media(min-width:700px){.topbar-teacher .teacher-nav{grid-template-columns:repeat(9,minmax(0,1fr));}}
+@media(orientation:landscape) and (max-height:520px){.topbar-teacher{flex-direction:column;align-items:stretch;}}
 </style>
 </head>
 <body>
@@ -612,11 +633,11 @@ var teacherAssignmentFilter = '';
 // 教師專區改成分頁：功能都在最上面的選單切換，不用在一長串頁面裡往下滑著找。順序依上課流程排列。
 var TEACHER_TABS = [
   { id:'attendance', label:'點名' },
+  { id:'gallery',    label:'作品牆' },
   { id:'equipment',  label:'器材輪借' },
   { id:'return',     label:'器材歸還' },
   { id:'grades',     label:'評分總表' },
   { id:'progress',   label:'評分進度' },
-  { id:'gallery',    label:'作品牆' },
   { id:'export',     label:'匯出' },
   { id:'accounts',   label:'同學與資料' },
   { id:'settings',   label:'設定' }
@@ -679,11 +700,11 @@ var equipCheckboxDraft = {};
 // 老師指定的固定 8 色順序（由左到右／由上到下），不提供使用者自訂顏色的功能。
 // 這裡改了名字或順序，記得 Code.gs 的 RAINBOW 陣列也要跟著改，
 // 兩邊的顏色名稱要完全對得上，不然舊資料存的名稱在這裡會找不到對應的色號。
-var RAINBOW_ORDER = ['紅','橙','黃','黃綠','淺藍','紫','粉紅','橄欖灰褐'];
-var RAINBOW_COLORS = {'紅':'#EE2737','橙':'#F89C08','黃':'#FFD600','黃綠':'#67CE38','淺藍':'#23B4E8','紫':'#9B56BA','粉紅':'#F9BDE1','橄欖灰褐':'#BEAC7D'};
+var RAINBOW_ORDER = ['紅','橙','黃','綠','藍','紫'];
+var RAINBOW_COLORS = {'紅':'#EE2737','橙':'#F89C08','黃':'#FFD600','綠':'#269B45','藍':'#2471D9','紫':'#9B56BA','粉紅':'#F9BDE1','橄欖灰褐':'#BEAC7D'};
 // 依每個底色的明暗，挑對比較清楚的文字顏色（淺色底用深字、深色底用白字），
 // 純粹是自動判斷可讀性，不是讓使用者可以調整顏色的功能。
-var RAINBOW_TEXT = {'紅':'#fff','橙':'#1a1a1a','黃':'#1a1a1a','黃綠':'#1a1a1a','淺藍':'#1a1a1a','紫':'#fff','粉紅':'#1a1a1a','橄欖灰褐':'#1a1a1a'};
+var RAINBOW_TEXT = {'紅':'#fff','橙':'#1a1a1a','黃':'#1a1a1a','綠':'#fff','藍':'#fff','紫':'#fff','粉紅':'#1a1a1a','橄欖灰褐':'#1a1a1a'};
 // 顏色完全依「這個人排在第幾個位置」現算，不是存在資料裡跟著這個人走的固定屬性——
 // 每一組的邏輯都一樣：第 1 個位置永遠是色盤第 1 色，第 2 個位置永遠是第 2 色，依此類推，
 // 8 個用完就繞回第 1 色重來。這樣不管誰請假、誰被移除、名單怎麼增減，只要看畫面上
@@ -2842,8 +2863,8 @@ function teacherEquipmentOverviewHtml(eq){
     } else {
       body =
         (state.paused ? equipmentPausedHintHtml(eq) : '') +
-        '<p class="hint">目前使用：<strong>'+(current?(escapeHtml(current.seat)+'號 '+escapeHtml(current.name)):'—')+'</strong>　剩 '+fmtTime(state.remainingMs)+'</p>' +
-        '<p class="hint">下一位：'+(next?(escapeHtml(next.seat)+'號 '+escapeHtml(next.name)):'—')+'</p>' +
+        '<p class="hint">使用：<strong>'+(current?(escapeHtml(current.seat)+'號 '+escapeHtml(current.name)):'—')+'</strong>　剩 '+fmtTime(state.remainingMs)+'　' +
+        '<span class="next-person">下一位：'+(next?(escapeHtml(next.seat)+'號 '+escapeHtml(next.name)):'—')+'</span></p>' +
         timelineHtml(state, true);
     }
     var waiverLog = g.waiverLog || [];
@@ -2853,7 +2874,7 @@ function teacherEquipmentOverviewHtml(eq){
         }).join('、')+'</p>'
       : '';
     return (
-      '<div class="card" style="margin-top:10px'+(current?';border-left:8px solid '+swatchColorFor(currentColorName):'')+'">' +
+      '<div class="card teacher-group" style="margin-top:6px'+(current?';border-left:8px solid '+swatchColorFor(currentColorName):'')+'">' +
         '<h3 class="screen-title" style="font-size:0.95rem">'+escapeHtml(g.name)+'　組長：'+escapeHtml((leaderSeatFor(g))?(leaderSeatFor(g)+' 號'):'（尚未排定順序）')+slotNoteHtml(eq, g)+'</h3>' +
         body +
         waiverHtml +
@@ -3060,10 +3081,10 @@ function teacherEquipMiniHtml(eq){
  */
 function equipAutoPauseButtonHtml(eq){
   var enabled=!eq||eq.autoPauseEnabled!==false;
-  return '<button type="button" class="navbtn" id="equipAutoPauseToggle" aria-pressed="'+enabled+'" '+(!eq||equipmentActionPending?'disabled':'')+' style="font-size:0.75rem;padding:5px 8px;'+(enabled?'background:var(--accent-soft);color:var(--accent-strong);':'')+'" title="開啟：下課自動暫停。關閉：下課也繼續倒數。手動暫停不受此開關影響。">下課自動暫停：'+(enabled?'開':'關')+'</button>';
+  return '<button type="button" class="navbtn" id="equipAutoPauseToggle" aria-pressed="'+enabled+'" '+(!eq||equipmentActionPending?'disabled':'')+' style="font-size:0.75rem;padding:5px 8px;'+(enabled?'background:var(--accent-soft);color:var(--accent-strong);':'')+'" title="開啟：下課自動暫停。關閉：下課也繼續倒數。手動暫停不受此開關影響。">下課暫停：'+(enabled?'開':'關')+'</button>';
 }
 function equipDurationQuickHtml(eq){
-  return '<label class="hint" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">總時間 <input type="number" id="equipTotalMinutes" aria-label="輪器材總時間（分鐘）" min="1" max="1440" step="any" value="'+equipmentTotalMinutes(eq)+'" style="width:76px"> 分</label>';
+  return '<label class="hint" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">總時間 <input type="number" id="equipTotalMinutes" aria-label="輪器材總時間（分鐘）" min="1" max="1440" step="any" value="'+equipmentTotalMinutes(eq)+'" style="width:52px;padding:5px"> 分</label>';
 }
 /** 只看「有排定順序的組」，全部都跑完了才算數——沒排順序的空組別不該讓整體被誤判為已完成。 */
 function isAllEquipmentDone(eq){
@@ -3080,7 +3101,7 @@ function equipStartPauseButtonsHtml(eq){
   var started=!!(eq&&eq.startedAt),done=!!(eq&&(eq.endedAt||isAllEquipmentDone(eq)));
   var autoPaused=started&&!done&&!eq.pausedAt&&!!equipmentPauseReason(eq);
   var label=!started?'開始':done?'重新開始':eq.pausedAt?'▶ 繼續':autoPaused?'手動暫停':'⏸ 暫停';
-  return '<button type="button" class="navbtn" id="equipStartPauseToggle" title="'+(autoPaused?'目前已開始並因課表自動暫停。按下可改為手動暫停，上課時也不自動接續。':'')+'">'+label+'</button>'+ (started&&!done?'<button type="button" class="navbtn" id="equipStopTimer">結束</button>':'')+'<button type="button" class="navbtn" id="equipResetTimer">重設計時</button>';
+  return '<button type="button" class="navbtn" id="equipStartPauseToggle" title="'+(autoPaused?'目前已開始並因課表自動暫停。按下可改為手動暫停，上課時也不自動接續。':'')+'">'+label+'</button>'+ (started&&!done?'<button type="button" class="navbtn" id="equipStopTimer">結束</button>':'')+'<button type="button" class="navbtn" id="equipResetTimer">重設</button>';
 }
 function handleEquipStartPauseToggle(){
   if(!equipmentData||!equipmentData.startedAt||equipmentData.endedAt||isAllEquipmentDone(equipmentData)) handleEquipStart();
@@ -3424,6 +3445,9 @@ function handleEquipReportReturned(group){
   }).catch(function(err){ setToast('error','送出失敗：'+err.message); render(); });
 }
 function handleEquipStart(){
+  if(equipmentActionPending) return;
+  var restarting=!!(equipmentData&&equipmentData.startedAt);
+  if(!confirm(restarting?'確定重新開始？所有組別會重新輪值，已用時間將歸零。':'確定開始計時？所有組別會同時開始輪值。')) return;
   handleEquipAction('equipmentStart');
 }
 function handleEquipPauseToggle(){
@@ -3792,22 +3816,15 @@ function navHtml(role){
     // 這排跳轉連結放在 <header> 裡面、跟品牌列一起，是為了讓它跟頂端列一樣
     // 是 sticky 的——往下滑頁面時會一直貼在最上面，不用滑回頂端才能點。
     return '<header class="topbar topbar-teacher">' +
-      '<div class="topbar-top teacher-bar">' +
-        '<div class="teacher-bar-left"><span class="brand-mark">&#9686;</span><button type="button" class="teacher-mode-btn" data-nav="home" title="點一下回到學生模式">教師模式</button>' +
-          '<span id="equipDurationQuickSlot">' + equipDurationQuickHtml(equipmentData) + '</span>' +
-          '<span id="equipAutoPauseSlot">'+equipAutoPauseButtonHtml(equipmentData)+'</span>' +
-        '</div>' +
-        '<div id="teacherEquipMiniSlot" style="flex:none">' + teacherEquipMiniHtml(equipmentData) + '</div>' +
+      '<div class="teacher-timer">' +
+        '<span id="equipDurationQuickSlot">'+equipDurationQuickHtml(equipmentData)+'</span>' +
+        '<span id="equipAutoPauseSlot">'+equipAutoPauseButtonHtml(equipmentData)+'</span>' +
+        '<span id="teacherEquipControlsSlot">'+equipStartPauseButtonsHtml(equipmentData)+'</span>' +
+        '<div id="teacherEquipMiniSlot">'+teacherEquipMiniHtml(equipmentData)+'</div>' +
       '</div>' +
-      // 分頁選單 + 最右邊固定的「開始／暫停」（常用，不跟著選單捲走）
-      '<div class="teacher-tabs-row">' +
-        '<nav class="tabs tabs-scroll">' +
-          TEACHER_TABS.map(function(t){
-            return '<button type="button" class="navbtn'+(teacherTab===t.id?' active':'')+'" data-teacher-tab="'+t.id+'">'+t.label+'</button>';
-          }).join('') +
-        '</nav>' +
-        '<span id="teacherEquipControlsSlot" style="display:contents">' + equipStartPauseButtonsHtml(equipmentData) + '</span>' +
-      '</div>' +
+      '<nav class="tabs teacher-nav">'+TEACHER_TABS.map(function(t){
+        return '<button type="button" class="navbtn'+(teacherTab===t.id?' active':'')+'" data-teacher-tab="'+t.id+'">'+t.label+'</button>';
+      }).join('')+'</nav>' +
     '</header>';
   }
   // 老師登入過教師模式的裝置，在學生模式測試時，畫面要跟學生看到的一模一樣，唯一的差別是
@@ -4829,7 +4846,7 @@ function attachHandlers(){
     if(confirmBtn){ handleEquipConfirmReturned(confirmBtn.getAttribute('data-group'), confirmBtn.closest('.card')); return; }
     if(e.target.closest('#equipAutoPauseToggle')){handleEquipAction('equipmentSetAutoPause',{enabled:equipmentData.autoPauseEnabled===false});return;}
     if(e.target.closest('#equipStopTimer')){handleEquipAction('equipmentStop');return;}
-    if(e.target.closest('#equipResetTimer')){handleEquipAction('equipmentResetTimer');return;}
+    if(e.target.closest('#equipResetTimer')){if(!equipmentActionPending&&confirm('確定重設計時？已用時間將歸零，回到尚未開始狀態。')) handleEquipAction('equipmentResetTimer');return;}
     if(e.target.closest('#equipStartPauseToggle')){ handleEquipStartPauseToggle(); return; }
   };
   root.onchange = function(e){
