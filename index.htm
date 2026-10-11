@@ -73,7 +73,7 @@ button,input,textarea{font-family:inherit;}
 .tabs-scroll .navbtn{flex:none;white-space:nowrap;padding:10px 16px;}
 /* 教師模式的頂端列要盡量矮（手機上它是 sticky，佔掉的高度會一直蓋住內容）：第一排一行放完、按鈕縮小 */
 .topbar-teacher{gap:6px;padding-block:8px 6px;}
-.teacher-bar{flex-wrap:nowrap;gap:8px;white-space:nowrap;}
+.teacher-bar{flex-wrap:wrap;gap:8px;white-space:nowrap;}
 .teacher-bar-left{display:flex;align-items:center;gap:8px;min-width:0;font-size:0.8rem;}
 .teacher-bar-left .brand-mark{font-size:1.1rem;}
 .teacher-mode-btn{background:none;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:0.8rem;font-weight:700;color:var(--ink);cursor:pointer;white-space:nowrap;}
@@ -2528,6 +2528,16 @@ function equipGroupSlot(eq,group){
   var n=presentOrderFor(group||{}).length,totalMs=equipmentTotalMinutes(eq)*60000;
   return {n:n,maxN:n,baseMs:totalMs,perMs:n?totalMs/n:totalMs};
 }
+function equipmentPauseReason(eq){
+  if(!eq || !eq.startedAt || eq.endedAt) return '';
+  if(eq.pausedAt) return '手動暫停，按「繼續」恢復';
+  if(eq.clockVersion===2 && !inClassAt(eq.classSchedule||defaultClassSchedule(),Date.now())) return '已開始，課表外自動暫停；上課後自動接續';
+  return '';
+}
+function equipmentPausedHintHtml(eq){
+  var reason=equipmentPauseReason(eq);
+  return reason ? '<p class="hint" style="color:var(--warn);font-weight:700">'+escapeHtml(reason)+'</p>' : '';
+}
 function equipGroupState(eq, group){
   var order = presentOrderFor(group || {});
   var n = order.length;
@@ -2613,7 +2623,7 @@ function equipMiniBarHtml(){
   var current = (state.active && !state.done) ? state.order[state.currentIndex] : null;
   var label = state.done ? '本輪已全部使用完畢'
     : state.active
-      ? (escapeHtml(current.seat)+'號 '+escapeHtml(current.name)+' 使用中　'+fmtTime(state.remainingMs)+(state.paused?'　（已暫停）':''))
+      ? (escapeHtml(current.seat)+'號 '+escapeHtml(current.name)+' 使用中　'+fmtTime(state.remainingMs)+(state.paused?'　（'+escapeHtml(equipmentPauseReason(equipmentData))+'）':''))
       : '尚未開始計時';
   return (
     '<div class="equip-mini">' +
@@ -2703,7 +2713,7 @@ function screenEquipment(){
   } else {
     timelineSection =
       '<div class="card equip-current" style="border-left:8px solid '+(current?swatchColorFor(currentColorName):'#999')+'">' +
-        (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停（手動暫停或目前為下課時間）</p>' : '') +
+        (state.paused ? equipmentPausedHintHtml(eq) : '') +
         '<p class="equip-turn-label">目前使用：</p>' +
         '<p class="equip-turn-name">'+(current ? ('<span class="equip-swatch" style="background:'+swatchColorFor(currentColorName)+'"></span>'+escapeHtml(currentColorName)+'夾・'+escapeHtml(current.seat)+'號 '+escapeHtml(current.name)) : '—')+'</p>' +
         '<p class="equip-timer">'+fmtTime(state.remainingMs)+'</p>' +
@@ -2829,7 +2839,7 @@ function teacherEquipmentOverviewHtml(eq){
         timelineHtml(state, true);
     } else {
       body =
-        (state.paused ? '<p class="hint" style="color:var(--warn);font-weight:700">已暫停（手動暫停或目前為下課時間）</p>' : '') +
+        (state.paused ? equipmentPausedHintHtml(eq) : '') +
         '<p class="hint">目前使用：<strong>'+(current?(escapeHtml(current.seat)+'號 '+escapeHtml(current.name)):'—')+'</strong>　剩 '+fmtTime(state.remainingMs)+'</p>' +
         '<p class="hint">下一位：'+(next?(escapeHtml(next.seat)+'號 '+escapeHtml(next.name)):'—')+'</p>' +
         timelineHtml(state, true);
@@ -3034,7 +3044,10 @@ function teacherEquipMiniHtml(eq){
   // 這裡挑「還在跑」的第一組當代表；全部組別都跑完了就說跑完了。
   var states = candidates.map(function(g){ return equipGroupState(eq, g); });
   var running = states.filter(function(s){ return s.active && !s.done; })[0];
-  if(running) return '<span class="hint" style="font-size:0.8rem;font-family:\'JetBrains Mono\',monospace;white-space:nowrap">剩 '+fmtTime(Math.max(0,equipmentTotalMinutes(eq)*60000-equipmentElapsedMs(eq,Date.now())))+(running.paused?'（暫停）':'')+'</span>';
+  if(running){
+    var reason=equipmentPauseReason(eq),status=eq.pausedAt?'手動暫停':running.paused?'已開始・課表外暫停':'計時中';
+    return '<span class="hint" title="'+escapeAttr(reason||'上課時間倒數，下課自動暫停')+'" style="font-size:0.75rem;white-space:normal;text-align:right;line-height:1.4;display:inline-block;color:'+(running.paused?'var(--warn)':'var(--ink-soft)')+'">'+status+'<br>剩 '+fmtTime(Math.max(0,equipmentTotalMinutes(eq)*60000-equipmentElapsedMs(eq,Date.now())))+'</span>';
+  }
   var anyStarted = states.some(function(s){ return s.active; });
   if(!anyStarted) return '<span class="hint" style="font-size:0.75rem">尚未開始計時</span>';
   return '<span class="hint" style="font-size:0.75rem;color:var(--good)">全部組別已跑完</span>';
@@ -3059,8 +3072,9 @@ function isAllEquipmentDone(eq){
  */
 function equipStartPauseButtonsHtml(eq){
   var started=!!(eq&&eq.startedAt),done=!!(eq&&(eq.endedAt||isAllEquipmentDone(eq)));
-  var label=!started?'開始':done?'重新開始':eq.pausedAt?'▶ 繼續':'⏸ 暫停';
-  return '<button type="button" class="navbtn" id="equipStartPauseToggle">'+label+'</button>'+ (started&&!done?'<button type="button" class="navbtn" id="equipStopTimer">結束</button>':'')+'<button type="button" class="navbtn" id="equipResetTimer">重設計時</button>';
+  var autoPaused=started&&!done&&!eq.pausedAt&&!!equipmentPauseReason(eq);
+  var label=!started?'開始':done?'重新開始':eq.pausedAt?'▶ 繼續':autoPaused?'手動暫停':'⏸ 暫停';
+  return '<button type="button" class="navbtn" id="equipStartPauseToggle" title="'+(autoPaused?'目前已開始並因課表自動暫停。按下可改為手動暫停，上課時也不自動接續。':'')+'">'+label+'</button>'+ (started&&!done?'<button type="button" class="navbtn" id="equipStopTimer">結束</button>':'')+'<button type="button" class="navbtn" id="equipResetTimer">重設計時</button>';
 }
 function handleEquipStartPauseToggle(){
   if(!equipmentData||!equipmentData.startedAt||equipmentData.endedAt||isAllEquipmentDone(equipmentData)) handleEquipStart();
